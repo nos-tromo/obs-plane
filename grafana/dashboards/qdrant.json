@@ -5,7 +5,7 @@
   "timezone": "browser",
   "editable": false,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
   "panels": [
@@ -27,13 +27,13 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "qdrant_collections_total"
+          "expr": "collections_total"
         }
       ]
     },
     {
       "id": 2,
-      "title": "REST responses",
+      "title": "Points per collection",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
@@ -43,14 +43,14 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (endpoint) (rate(rest_responses_total[5m]))",
-          "legendFormat": "{{endpoint}}"
+          "expr": "collection_points",
+          "legendFormat": "{{collection_name}}"
         }
       ]
     },
     {
       "id": 3,
-      "title": "REST errors",
+      "title": "Vectors per collection",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
@@ -60,13 +60,14 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(rest_responses_fail_total[5m]))"
+          "expr": "collection_vectors",
+          "legendFormat": "{{collection_name}}"
         }
       ]
     },
     {
       "id": 4,
-      "title": "gRPC responses",
+      "title": "Update queue length",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
@@ -76,19 +77,19 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (endpoint) (rate(grpc_responses_total[5m]))",
-          "legendFormat": "{{endpoint}}"
+          "expr": "collection_update_queue_length",
+          "legendFormat": "{{collection_name}}"
         }
       ]
     },
     {
       "id": 5,
-      "title": "Response time",
+      "title": "Resident memory",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
       "fieldConfig": {
-        "defaults": { "unit": "s" },
+        "defaults": { "unit": "bytes" },
         "overrides": []
       },
       "options": {},
@@ -96,7 +97,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rest_responses_avg_duration_seconds"
+          "expr": "memory_resident_bytes"
         }
       ]
     }
