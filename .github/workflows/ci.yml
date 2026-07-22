@@ -32,10 +32,11 @@ jobs:
     # Validate every service config with the exact pinned images that will run it.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: docker compose config
         run: |
           cp .env.example .env
+          docker compose --env-file .env -f docker/compose.yaml config --quiet
           docker compose -f docker/compose.yaml -f docker/compose.override.yaml --env-file .env config --quiet
       - name: promtool check config + rules
         run: |
