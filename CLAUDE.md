@@ -53,15 +53,17 @@ config validation. The whole repo is a `Makefile`, two compose files under
   is the dev-only overlay that publishes Grafana
   (`${GRAFANA_HOST_PORT:-3001}`) and is layered only via `make up-dev`.
 - **`make nuke` is the only volume destroyer.** `prometheus-data`,
-  `loki-data`, `grafana-data` are declared `external`, so `docker compose
-  down -v` here cannot remove them. Only the interactive `make nuke`
-  (type `nuke` to confirm) deletes them by name.
+  `loki-data`, `grafana-data`, `alloy-data` (Alloy's log-tail read
+  positions — durable so recreating the container doesn't duplicate or
+  drop log lines) are declared `external`, so `docker compose down -v`
+  here cannot remove them. Only the interactive `make nuke` (type `nuke`
+  to confirm) deletes them by name.
 
 ## Commands
 
 ```bash
 make network                  # create external inference-net + data-net (idempotent)
-make volumes                  # create external prometheus-data/loki-data/grafana-data (idempotent)
+make volumes                  # create external prometheus-data/loki-data/grafana-data/alloy-data (idempotent)
 make pull                     # pull all images
 make up                       # production shape — no host ports
 make up-dev                   # layers docker/compose.override.yaml — publishes Grafana on the host

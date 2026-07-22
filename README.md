@@ -16,7 +16,7 @@ Seven services, all lightweight next to the inference stack.
 | `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
 | `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal only |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
-| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki | project-internal only; reads `/var/run/docker.sock` (ro) |
+| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate) | project-internal only; reads `/var/run/docker.sock` (ro) |
 | `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
@@ -65,7 +65,7 @@ cp .env.example .env
 $EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD at minimum
 
 make network                  # create the external inference-net + data-net (idempotent)
-make volumes                  # create the external obs volumes (idempotent)
+make volumes                  # create the external obs volumes (prometheus-data, loki-data, grafana-data, alloy-data; idempotent)
 make up-dev                   # start, publishing Grafana on the host
 ```
 
