@@ -1,0 +1,12 @@
+groups:
+  - name: logs
+    rules:
+      - alert: ErrorLogSpike
+        expr: >
+          sum by (compose_project, compose_service)
+          (rate({compose_project=~".+"} |~ `(?i)(error|exception|traceback)` [5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Error-log spike in {{ $labels.compose_project }}/{{ $labels.compose_service }}"

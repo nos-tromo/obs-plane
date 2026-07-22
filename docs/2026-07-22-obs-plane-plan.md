@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Confidentiality (hard rule):** nothing committed may contain real data or absolute local paths (e.g., `/home/user` or similar). Only repo-relative paths in every committed file.
+- **Confidentiality (hard rule):** nothing committed may contain real data or absolute local paths (e.g., `/home/<name>` or similar). Only repo-relative paths in every committed file.
 - **Image pins (security requirement, user-mandated):** every `image:` is `registry/repo:vX.Y.Z@sha256:...` — explicit release tag **and** digest. Never `latest`, `stable`, `main`, or rc tags. Exact pins are given in Task 2 (resolved 2026-07-22); re-resolve only if a task fails because a tag/digest has been yanked.
 - **Airgap:** no runtime fetching, no telemetry. Grafana analytics/update-check env flags off, Loki `analytics.reporting_enabled: false`, Alloy `--disable-reporting`. No Grafana plugins.
 - **No host ports in `docker/compose.yaml`.** Only `compose.override.yaml` publishes (Grafana on `${GRAFANA_HOST_PORT:-3001}`).
@@ -61,6 +61,12 @@ Copy the two design docs from the infra workspace root `docs/` into `docs/` here
 
 - [ ] **Step 3: Verify and commit to main, then branch**
 
+Verify no real local paths are present:
+```bash
+grep -rnE '/(Users|home)/[A-Za-z0-9_.-]+' . --exclude-dir=.git && echo "FAIL: local paths found" || echo "clean"
+```
+
+Then commit:
 ```bash
 git add -A && git commit -m "chore: scaffold obs-plane (VERSION, docs, gitignore)"
 git push -u origin main
@@ -293,7 +299,7 @@ services:
 ```bash
 # Copy to .env and set GRAFANA_ADMIN_PASSWORD at minimum.
 GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=changeme
+GRAFANA_ADMIN_PASSWORD=changeme-set-a-real-password
 GRAFANA_HOST_PORT=3001
 PROMETHEUS_RETENTION=30d
 LOKI_RETENTION=720h
@@ -1059,6 +1065,12 @@ git commit -m "ci: infra-validation + pinned-image config checks; release-tag ca
 
 - [ ] **Step 3: Final sweep + push + PR**
 
+Verify no real local paths in the entire tree:
+```bash
+grep -rnE '/(Users|home)/[A-Za-z0-9_.-]+' . --exclude-dir=.git && echo "FAIL: local paths found" || echo "clean"
+```
+
+Then commit and push:
 ```bash
 git add README.md CLAUDE.md && git commit -m "docs: README + CLAUDE.md"
 git push -u origin feature/obs-plane-v1

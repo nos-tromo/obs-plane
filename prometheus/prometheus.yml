@@ -1,0 +1,43 @@
+# Scrape targets reachable with ZERO member-repo changes.
+# Not scrapeable in v1 (see README): Neo4j Community (no metrics endpoint),
+# LiteLLM /metrics (enterprise-gated), vLLM backends (internal vllm-net only).
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: qdrant
+    static_configs:
+      - targets: ["qdrant:6333"]
+
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://vllm-router:4000/health/liveliness
+          - http://neo4j:7474
+          - http://qdrant:6333/healthz
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
