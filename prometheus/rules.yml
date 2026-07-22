@@ -1,0 +1,40 @@
+# Alert rules — no notification channel by design (airgapped prod has no
+# outbound path). They fire in Prometheus and appear read-only in
+# Grafana -> Alerting -> Alert rules.
+groups:
+  - name: federation
+    rules:
+      - alert: ProbeDown
+        expr: probe_success == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} failing HTTP probe for 5m"
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Scrape target {{ $labels.job }}/{{ $labels.instance }} down for 5m"
+      - alert: ContainerRestartLooping
+        expr: changes(container_start_time_seconds{name!=""}[1h]) > 3
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "Container {{ $labels.name }} restarted >3x in 1h"
+  - name: host
+    rules:
+      - alert: HostDiskAlmostFull
+        expr: >
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.15
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} >85% full"
+      - alert: HostMemoryPressure
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Host memory available <10% for 10m"
