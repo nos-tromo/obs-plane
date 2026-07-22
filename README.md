@@ -17,8 +17,8 @@ Seven services, all lightweight next to the inference stack.
 | `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal only |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `alloy` | Log collector: Docker-API discovery of every container's logs → Loki | project-internal only; reads `/var/run/docker.sock` (ro) |
-| `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | none; scraped in-place |
-| `cadvisor` | Per-container metrics for every compose project on the host | none; scraped in-place |
+| `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
+| `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
 
 Only `prometheus` and `blackbox-exporter` join the two shared external
