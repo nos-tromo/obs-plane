@@ -95,6 +95,16 @@ docker run --rm -v "$PWD/loki/loki.yaml:/etc/loki/loki.yaml:ro" \
   docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc \
   -config.file=/etc/loki/loki.yaml -config.expand-env=true -verify-config
 
+# -verify-config above doesn't load loki/rules/*.yml (no LogQL check); confirm
+# the ruler actually loads them by starting loki and querying its rules API:
+docker run -d --name loki-rules-check -p 3100:3100 \
+  -v "$PWD/loki/loki.yaml:/etc/loki/loki.yaml:ro" \
+  -v "$PWD/loki/rules:/loki/rules/fake:ro" \
+  docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc \
+  -config.file=/etc/loki/loki.yaml -config.expand-env=true
+curl -sf http://localhost:3100/loki/api/v1/rules | grep ErrorLogSpike  # retry until ready
+docker rm -f loki-rules-check
+
 docker run --rm -v "$PWD/alloy/config.alloy:/cfg/config.alloy:ro" \
   docker.io/grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308 \
   fmt /cfg/config.alloy > /dev/null
