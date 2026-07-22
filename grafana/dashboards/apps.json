@@ -1,0 +1,95 @@
+{
+  "uid": "fed-apps",
+  "title": "Apps",
+  "tags": ["federation"],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate by app",
+      "description": "sum by (instance) (rate(http_requests_total[5m])). Pending companion PRs chorus#95, docint#341, Nextext#105, translator#71 — metric names are prometheus-fastapi-instrumentator defaults and will be confirmed once an app PR merges.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (instance) (rate(http_requests_total[5m]))",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error rate by app (5xx)",
+      "description": "sum by (instance) (rate(http_requests_total{status=~\"5..\"}[5m])). Pending companion PRs chorus#95, docint#341, Nextext#105, translator#71.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (instance) (rate(http_requests_total{status=~\"5..\"}[5m]))",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency p95 by app",
+      "description": "histogram_quantile(0.95, sum by (instance, le) (rate(http_request_duration_seconds_bucket[5m]))). Pending companion PRs — bucket metric name may differ per instrumentator version (e.g. http_request_duration_highr_seconds); confirm once an app PR merges.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Top routes",
+      "description": "sum by (instance, handler) (rate(http_requests_total[5m])). Pending companion PRs chorus#95, docint#341, Nextext#105, translator#71.",
+      "type": "table",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (instance, handler) (rate(http_requests_total[5m]))",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}
