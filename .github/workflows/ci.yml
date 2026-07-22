@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    # Shared infra checks (yamllint, shellcheck, hadolint, make/common.mk +
+    # bundle-lib.sh drift-check) incl. bundle-lib drift-check (same as data-plane).
+    #
+    # compose-files is deliberately omitted: the reusable workflow's
+    # compose-config sub-job stubs only NEO4J_PASSWORD/OPENAI_API_KEY (written
+    # for data-plane/vllm-service), not this repo's required
+    # GRAFANA_ADMIN_PASSWORD, so it would fail `docker compose config` here.
+    # Compose validation is done ourselves below in validate-configs, seeded
+    # from .env.example (which does supply GRAFANA_ADMIN_PASSWORD).
+    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@v3
+    with:
+      shell-scripts-glob: 'scripts/*.sh'
+
+  validate-configs:
+    # Validate every service config with the exact pinned images that will run it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config
+        run: |
+          cp .env.example .env
+          docker compose -f docker/compose.yaml -f docker/compose.override.yaml --env-file .env config --quiet
+      - name: promtool check config + rules
+        run: |
+          docker run --rm -v "$PWD/prometheus:/etc/prometheus:ro" --entrypoint promtool \
+            docker.io/prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893 \
+            check config /etc/prometheus/prometheus.yml
+      - name: loki verify-config
+        run: |
+          docker run --rm -v "$PWD/loki/loki.yaml:/etc/loki/loki.yaml:ro" \
+            docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc \
+            -config.file=/etc/loki/loki.yaml -config.expand-env=true -verify-config
+      - name: alloy fmt (parse check)
+        run: |
+          docker run --rm -v "$PWD/alloy/config.alloy:/cfg/config.alloy:ro" \
+            docker.io/grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308 \
+            fmt /cfg/config.alloy > /dev/null
+      - name: blackbox config check
+        run: |
+          docker run --rm -v "$PWD/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro" --entrypoint /bin/blackbox_exporter \
+            docker.io/prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc \
+            --config.file=/etc/blackbox/blackbox.yml --config.check
+      - name: dashboards are valid JSON
+        run: |
+          for f in grafana/dashboards/*.json; do python3 -m json.tool "$f" > /dev/null; done
