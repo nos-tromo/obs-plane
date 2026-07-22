@@ -1,10 +1,17 @@
 # Scrape targets reachable with ZERO member-repo changes.
 # Not scrapeable in v1 (see README): Neo4j Community (no metrics endpoint),
-# LiteLLM /metrics (enterprise-gated), vLLM backends (internal vllm-net only).
+# LiteLLM /metrics (enterprise-gated).
 #
-# The `apps` job below depends on companion, unmerged app-repo PRs
-# (chorus#95, docint#341, Nextext#105, translator#71) that add
-# prometheus-fastapi-instrumentator; see the job comment for detail.
+# The `apps` job below scrapes the FastAPI backends, instrumented via
+# prometheus-fastapi-instrumentator (chorus#95, docint#341, Nextext#105,
+# translator#71 — merged); targets are up once each app deploys an image
+# containing that change. See the job comment for network membership.
+#
+# The `vllm` job below targets chat/embed/rerank/asr by service name on
+# inference-net. This depends on nos-tromo/vllm-service#67 (unmerged) to
+# attach those backends to inference-net — until it merges these targets
+# are DOWN (expected). clip/diarize/vad expose no /metrics endpoint and
+# gliner (Ray Serve) is unconfirmed; all four stay unscraped (see README).
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
@@ -30,10 +37,9 @@ scrape_configs:
       - targets: ["qdrant:6333"]
 
   # FastAPI app backends — instrumented via prometheus-fastapi-instrumentator
-  # in companion, unmerged PRs: chorus#95, docint#341, Nextext#105,
-  # translator#71. Targets below are read down (scrapes will show `up == 0`)
-  # until each companion PR merges and the corresponding backend ships
-  # /metrics. Network membership per app:
+  # (chorus#95, docint#341, Nextext#105, translator#71 — merged). Targets
+  # read down (`up == 0`) until each app deploys an image containing that
+  # change. Network membership per app:
   #   chorus-backend:8000     — data-net (also on inference-net)
   #   docint-backend:8000     — data-net (also on inference-net)
   #   nextext-backend:8000    — inference-net only
@@ -45,6 +51,10 @@ scrape_configs:
           - docint-backend:8000
           - nextext-backend:8000
           - translator-backend:8000
+
+  - job_name: vllm
+    static_configs:
+      - targets: ["chat:8000", "embed:8000", "rerank:8000", "asr:8000"]
 
   - job_name: blackbox
     metrics_path: /probe
