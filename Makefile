@@ -12,7 +12,7 @@ INFERENCE_NET ?= $(or $(strip $(shell test -f .env && grep -E '^INFERENCE_NET=' 
 DATA_NET      ?= $(or $(strip $(shell test -f .env && grep -E '^DATA_NET=' .env | cut -d= -f2)),data-net)
 
 # External named volumes this project owns. Keep in sync with docker/compose.yaml.
-VOLUMES := prometheus-data loki-data grafana-data
+VOLUMES := prometheus-data loki-data grafana-data alloy-data
 
 COMPOSE     := docker compose --env-file .env -f docker/compose.yaml
 COMPOSE_DEV := docker compose --env-file .env -f docker/compose.yaml -f docker/compose.override.yaml
