@@ -133,7 +133,8 @@ services:
       - --path.rootfs=/host
     pid: host
     volumes:
-      - /:/host:ro
+      # rslave keeps post-boot mounts visible to node_filesystem_* metrics
+      - /:/host:ro,rslave
     restart: unless-stopped
 
   ##########################################################

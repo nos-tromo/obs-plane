@@ -44,7 +44,7 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "collection_points",
-          "legendFormat": "{{collection_name}}"
+          "legendFormat": "{{id}}"
         }
       ]
     },
@@ -61,7 +61,7 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "collection_vectors",
-          "legendFormat": "{{collection_name}}"
+          "legendFormat": "{{collection}}"
         }
       ]
     },
@@ -78,7 +78,7 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "collection_update_queue_length",
-          "legendFormat": "{{collection_name}}"
+          "legendFormat": "{{id}}"
         }
       ]
     },
