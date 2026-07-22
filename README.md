@@ -54,9 +54,18 @@ Explicitly **not** available in v1:
   (token throughput, latency, KV-cache usage) require a one-line
   vllm-service change (attach backends to `inference-net`) — the first
   follow-up PR after v1.
-- **FastAPI app metrics** — the four Python apps expose no `/metrics`;
-  instrumentation (`prometheus-fastapi-instrumentator`) is a later
-  follow-up.
+**Observable, pending companion PRs**:
+
+- **FastAPI app metrics** — `chorus-backend:8000`, `docint-backend:8000`,
+  `nextext-backend:8000`, `translator-backend:8000` are configured as a
+  Prometheus `apps` scrape job (`prometheus/prometheus.yml`), each exposing
+  `prometheus-fastapi-instrumentator` defaults (`http_requests_total`,
+  `http_request_duration_seconds` buckets; labeled `method`/`handler`
+  (route template)/`status`). The targets read down (`up == 0`) until the
+  corresponding companion PR merges and ships `/metrics`: chorus#95,
+  docint#341, Nextext#105, translator#71. `chorus-backend` and
+  `docint-backend` resolve on `data-net` (also on `inference-net`);
+  `nextext-backend` and `translator-backend` are `inference-net` only.
 
 ## Quick start
 
