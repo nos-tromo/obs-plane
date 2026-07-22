@@ -1,0 +1,182 @@
+### obs-plane compose — observability for the nos-tromo federation.
+###
+### What this project owns:
+###   - Prometheus (metrics), Loki (logs), Grafana (UI) + their named volumes
+###   - Collectors: Alloy (logs), node-exporter, cAdvisor, blackbox-exporter
+###
+### What it does NOT own:
+###   - inference-net / data-net (external; joined read-only as a scraper)
+###   - Any service other members depend on — obs-plane is a pure consumer.
+###
+### Airgap: all images pulled + digest-pinned; every phone-home/update-check
+### is disabled below. Nothing fetches anything at runtime.
+
+name: obs-plane
+
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "50m"
+    max-file: "5"
+    compress: "true"
+
+networks:
+  default:
+  inference-net:
+    external: true
+    name: ${INFERENCE_NET:-inference-net}
+  data-net:
+    external: true
+    name: ${DATA_NET:-data-net}
+
+services:
+  ##########################################################
+  # Prometheus — metrics store + scraper
+  ##########################################################
+  prometheus:
+    image: docker.io/prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+    logging: *default-logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      default:
+      inference-net:
+      data-net:
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  ##########################################################
+  # Grafana — UI; everything provisioned from files
+  ##########################################################
+  grafana:
+    image: docker.io/grafana/grafana-oss:13.0.2@sha256:5dad0df181cb644a14e13617b913b261a54f7d4fd4510721dba420929f35bea2
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
+      # Airgap: no phone-home, no update checks, no news feed.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  ##########################################################
+  # Loki — log store (single-binary, filesystem backend)
+  ##########################################################
+  loki:
+    image: docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc
+    logging: *default-logging
+    command:
+      - -config.file=/etc/loki/loki.yaml
+      - -config.expand-env=true
+    environment:
+      LOKI_RETENTION: ${LOKI_RETENTION:-720h}
+    volumes:
+      - ../loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - ../loki/rules:/loki/rules/fake:ro
+      - loki-data:/loki
+    # The loki image may ship no wget/curl (qdrant precedent) — external
+    # readiness is asserted by `make health` via the prometheus container.
+    restart: unless-stopped
+
+  ##########################################################
+  # Alloy — ships every container's logs to Loki via the Docker API
+  # (works with the fleet-wide `local` log driver; no driver changes)
+  ##########################################################
+  alloy:
+    image: docker.io/grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308
+    logging: *default-logging
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --disable-reporting
+      - --storage.path=/var/lib/alloy/data
+    volumes:
+      - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  ##########################################################
+  # node-exporter — host metrics
+  ##########################################################
+  node-exporter:
+    image: docker.io/prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    logging: *default-logging
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  ##########################################################
+  # cAdvisor — per-container metrics for the whole host
+  ##########################################################
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1@sha256:3de2bd5203120b866d74a9b283b2ffb8ec382fbf9dc321814700c6ea6f44ec57
+    logging: *default-logging
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    restart: unless-stopped
+
+  ##########################################################
+  # blackbox-exporter — HTTP health probes of federation endpoints
+  ##########################################################
+  blackbox-exporter:
+    image: docker.io/prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc
+    logging: *default-logging
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ../blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      default:
+      inference-net:
+      data-net:
+    restart: unless-stopped
+
+##########################################################
+# Volumes — external; created by `make volumes`, destroyed
+# only by the interactive `make nuke` (data-plane pattern).
+##########################################################
+volumes:
+  prometheus-data:
+    external: true
+  loki-data:
+    external: true
+  grafana-data:
+    external: true
