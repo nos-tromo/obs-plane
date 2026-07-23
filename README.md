@@ -104,7 +104,7 @@ to `edge-net` could reach `grafana:3000` directly and send an arbitrary
 `X-Auth-User` value, auto-provisioning or impersonating a user. This is
 the same trust posture already accepted by the app frontends
 (chorus/docint/Nextext) that consume the identical header contract; it
-is not a new exposure introduced by this change.
+is not a new exposure introduced by this change. Re-evaluate this acceptance if edge-net membership ever grows beyond the gateway, the app frontends, and Grafana.
 
 The production shape (`make up`, `docker/compose.yaml` alone) still
 publishes **no host ports** — same convention as every other federation
