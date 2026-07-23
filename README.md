@@ -41,6 +41,12 @@ Reachable with zero member changes:
   (`data-net`), `qdrant:6333/healthz` (`data-net`).
 - **Logs of every container on the host** — Alloy Docker discovery →
   Loki, labeled by compose project + service.
+- **obs-plane's own internals** — Prometheus (`prometheus:9090`), Loki
+  (`loki:3100/metrics`), and Alloy (`alloy:12345/metrics`, HTTP server
+  rebound to `0.0.0.0` so prometheus can reach it) are scraped like any
+  other target and rendered on the `obs-plane.json` dashboard: TSDB size,
+  ingestion rate, scrape duration by job, Loki ingest bytes/chunk-flush
+  rate, Alloy shipped-bytes rate.
 - **vLLM backends** (`chat`, `embed`, `rerank`, `asr`) — native
   `vllm:...` Prometheus metrics (token throughput, latency, KV-cache
   usage) scraped by service name on `inference-net`, pending
