@@ -28,6 +28,9 @@ networks:
   data-net:
     external: true
     name: ${DATA_NET:-data-net}
+  edge-net:
+    external: true
+    name: ${EDGE_NET:-edge-net}
 
 services:
   ##########################################################
@@ -70,10 +73,25 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Served under /grafana/ behind the edge gateway (edge-plane).
+      GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Identity comes from the gateway's trusted header (Authelia
+      # forward-auth); the gateway strips it from clients. Login form
+      # stays enabled for the dev-override/tunnel path (admin).
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: "X-Auth-User"
+      GF_AUTH_PROXY_HEADER_PROPERTY: "username"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: ${GRAFANA_VIEWER_ROLE:-Viewer}
     volumes:
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
+    networks:
+      default:
+      edge-net:
+        aliases: [grafana]
     depends_on:
       prometheus:
         condition: service_healthy

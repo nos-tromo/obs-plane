@@ -14,17 +14,18 @@ Seven services, all lightweight next to the inference stack.
 | Service | Role | Network membership |
 |---|---|---|
 | `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
-| `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal only |
+| `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal + `edge-net` (served at `/grafana/` behind the edge gateway) |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate) | project-internal only; reads `/var/run/docker.sock` (ro) |
 | `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
 
-Only `prometheus` and `blackbox-exporter` join the two shared external
-networks (to reach scrape/probe targets by alias); the rest stay on the
+`prometheus` and `blackbox-exporter` join the two shared external
+networks (to reach scrape/probe targets by alias); `grafana` additionally
+joins `edge-net` so the edge gateway can reach it — the rest stay on the
 project-internal default network. obs-plane claims no alias other
-services depend on — it is a read-only consumer of both seams.
+services depend on — it is a read-only consumer of all three seams.
 
 ## What is observable / what is not
 
@@ -73,7 +74,7 @@ Explicitly **not** available in v1:
 cp .env.example .env
 $EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD at minimum
 
-make network                  # create the external inference-net + data-net (idempotent)
+make network                  # create the external inference-net + data-net + edge-net (idempotent)
 make volumes                  # create the external obs volumes (prometheus-data, loki-data, grafana-data, alloy-data; idempotent)
 make up-dev                   # start, publishing Grafana on the host
 ```
@@ -85,9 +86,30 @@ fresh host can just run `make up-dev` directly.
 
 ## Grafana access on production
 
-The production shape (`make up`, `docker/compose.yaml` alone) publishes
-**no host ports** — same convention as every other federation member. On
-a production host, reach Grafana either with `make up-dev` (layers
+Grafana's primary browser path is now the edge gateway:
+`https://${EDGE_HOST}/grafana/`, routed by `edge-plane`'s Caddy +
+Authelia forward-auth. `GF_SERVER_ROOT_URL` / `GF_SERVER_SERVE_FROM_SUB_PATH`
+tell Grafana it is served under `/grafana/`; `GF_AUTH_PROXY_*` configure
+Grafana's auth.proxy so a request carrying the trusted `X-Auth-User`
+header auto-logs-in and auto-provisions that user (default org role
+`${GRAFANA_VIEWER_ROLE:-Viewer}`). This revises the v1 decision (below)
+that treated the tunnel as the only path — that path remains, as the
+admin/fallback route.
+
+**Trusted-zone note**: `X-Auth-User` is only trustworthy because
+edge-plane's Caddy unconditionally strips any client-supplied copy of it
+and injects its own after Authelia authenticates the request — Grafana
+itself does no verification of the header's origin. Any container joined
+to `edge-net` could reach `grafana:3000` directly and send an arbitrary
+`X-Auth-User` value, auto-provisioning or impersonating a user. This is
+the same trust posture already accepted by the app frontends
+(chorus/docint/Nextext) that consume the identical header contract; it
+is not a new exposure introduced by this change.
+
+The production shape (`make up`, `docker/compose.yaml` alone) still
+publishes **no host ports** — same convention as every other federation
+member. Without the gateway (or for admin access, since the login form
+stays enabled), reach Grafana either with `make up-dev` (layers
 `docker/compose.override.yaml`, which publishes
 `${GRAFANA_HOST_PORT:-3001}`) or via an SSH tunnel to the container port
 instead of publishing it at all. `compose.override.yaml` also relaxes the
