@@ -83,7 +83,7 @@ and Loki each run in a few hundred MB at single-host scale).
 | `loki` | grafana/loki | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | — |
 | `alloy` | grafana/alloy | Log collector: Docker-API discovery of all containers → Loki | `/var/run/docker.sock` (ro) |
 | `node-exporter` | prom/node-exporter | Host metrics | host `/`, `/proc`, `/sys` (ro) |
-| `cadvisor` | gcr.io/cadvisor/cadvisor | Per-container metrics, whole host | `/var/run/docker.sock` + host fs (ro) |
+| `cadvisor` | ghcr.io/google/cadvisor | Per-container metrics, whole host | `/var/run/docker.sock` + host fs (ro) |
 | `blackbox-exporter` | prom/blackbox-exporter | HTTP probes of federation endpoints | joins `inference-net` + `data-net` |
 
 All images referenced as `repo:tag@sha256:...` (digest-pinned), the
