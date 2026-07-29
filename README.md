@@ -42,6 +42,13 @@ Reachable with zero member changes:
   (`data-net`), `qdrant:6333/healthz` (`data-net`).
 - **Logs of every container on the host** — Alloy Docker discovery →
   Loki, labeled by compose project + service.
+- **vLLM backends** (`chat`, `embed`, `rerank`, `asr`) — native
+  `vllm:...` Prometheus metrics (token throughput, latency, KV-cache
+  usage) scraped by service name on `inference-net`, pending
+  [nos-tromo/vllm-service#67](https://github.com/nos-tromo/vllm-service/pull/67)
+  (unmerged), which attaches those backends to `inference-net`. Until it
+  merges, the `vllm` scrape job's targets are down — expected, not a
+  regression. See the `vllm.json` dashboard below.
 
 Explicitly **not** available in v1:
 
@@ -49,24 +56,25 @@ Explicitly **not** available in v1:
   the federation runs Community. Coverage is cAdvisor + HTTP probe only.
 - **LiteLLM router `/metrics`** — enterprise-gated in current LiteLLM
   releases. Coverage is cAdvisor + liveliness probe only.
-- **vLLM backend `/metrics`** — the backends (`chat`, `embed`, `rerank`,
-  `clip`, `asr`, `diarize`, `vad`, `gliner`) sit only on the internal
-  `vllm-net`; only the router joins `inference-net`. Native vLLM metrics
-  (token throughput, latency, KV-cache usage) require a one-line
-  vllm-service change (attach backends to `inference-net`) — the first
-  follow-up PR after v1.
-**Observable, pending companion PRs**:
+- **`clip`, `diarize`, `vad` vLLM backends** — expose no `/metrics`
+  endpoint at all; cAdvisor coverage only.
+- **`gliner`** — Ray Serve, not `vllm serve`; whether it exposes a
+  Prometheus endpoint is unconfirmed, so it stays unscraped pending
+  investigation.
+
+**Observable once the apps deploy updated images**:
 
 - **FastAPI app metrics** — `chorus-backend:8000`, `docint-backend:8000`,
   `nextext-backend:8000`, `translator-backend:8000` are configured as a
   Prometheus `apps` scrape job (`prometheus/prometheus.yml`), each exposing
   `prometheus-fastapi-instrumentator` defaults (`http_requests_total`,
   `http_request_duration_seconds` buckets; labeled `method`/`handler`
-  (route template)/`status`). The targets read down (`up == 0`) until the
-  corresponding companion PR merges and ships `/metrics`: chorus#95,
-  docint#341, Nextext#105, translator#71. `chorus-backend` and
-  `docint-backend` resolve on `data-net` (also on `inference-net`);
-  `nextext-backend` and `translator-backend` are `inference-net` only.
+  (route template)/`status`). The instrumentation PRs (chorus#95,
+  docint#341, Nextext#105, translator#71) are merged; the targets read
+  down (`up == 0`) until each app deploys an image containing the change.
+  `chorus-backend` and `docint-backend` resolve on `data-net` (also on
+  `inference-net`); `nextext-backend` and `translator-backend` are
+  `inference-net` only.
 
 ## Quick start
 
