@@ -10,11 +10,29 @@
   "time": { "from": "now-6h", "to": "now" },
   "panels": [
     {
+      "id": 9,
+      "title": "Alerts",
+      "type": "alertlist",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "showOptions": "current",
+        "maxItems": 20,
+        "sortOrder": 1,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "dashboardTitle": "",
+        "folder": "",
+        "tags": [],
+        "stateFilter": { "firing": true, "pending": true, "noData": false, "normal": false, "error": true },
+        "viewMode": "list"
+      }
+    },
+    {
       "id": 1,
       "title": "Probe status",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 8 },
       "fieldConfig": {
         "defaults": {
           "mappings": [
@@ -53,11 +71,31 @@
       ]
     },
     {
+      "id": 8,
+      "title": "Probe latency",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "probe_duration_seconds",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
       "id": 2,
       "title": "Scrape targets",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 6 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 22 },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -90,7 +128,7 @@
       "title": "Containers running",
       "type": "table",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": {},
       "targets": [
@@ -108,7 +146,7 @@
       "title": "Container CPU",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": {},
       "targets": [
@@ -125,7 +163,7 @@
       "title": "Container memory",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 44 },
       "fieldConfig": {
         "defaults": { "unit": "bytes" },
         "overrides": []
@@ -145,7 +183,7 @@
       "title": "Container restarts (1h)",
       "type": "table",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 52 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": {},
       "targets": [
@@ -163,7 +201,7 @@
       "title": "Host disk fill",
       "type": "gauge",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 44 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 60 },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",

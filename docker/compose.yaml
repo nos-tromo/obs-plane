@@ -134,6 +134,9 @@ services:
       - /etc/alloy/config.alloy
       - --disable-reporting
       - --storage.path=/var/lib/alloy/data
+      # Alloy's HTTP server (metrics + UI) defaults to loopback-only; bind
+      # all interfaces on the project-internal network so prometheus can scrape it.
+      - --server.http.listen-addr=0.0.0.0:12345
     volumes:
       - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
