@@ -123,7 +123,75 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (job, instance) (vllm:gpu_cache_usage_perc)",
+          "expr": "sum by (job, instance) (vllm:kv_cache_usage_perc or vllm:gpu_cache_usage_perc)",
+          "legendFormat": "{{job}} / {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Inter-token latency (p95)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 56 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (job, instance, le) (rate(vllm:inter_token_latency_seconds_bucket[5m])))",
+          "legendFormat": "{{job}} / {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Tokens per engine step (p95)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 64 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (job, instance, le) (rate(vllm:iteration_tokens_total_bucket[5m])))",
+          "legendFormat": "{{job}} / {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Request queue time (p95)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 72 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (job, instance, le) (rate(vllm:request_queue_time_seconds_bucket[5m])))",
+          "legendFormat": "{{job}} / {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Preemptions / s",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 80 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (job, instance) (rate(vllm:num_preemptions_total[5m]))",
           "legendFormat": "{{job}} / {{instance}}"
         }
       ]
