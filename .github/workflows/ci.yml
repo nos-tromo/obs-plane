@@ -24,7 +24,7 @@ jobs:
     # GRAFANA_ADMIN_PASSWORD, so it would fail `docker compose config` here.
     # Compose validation is done ourselves below in validate-configs, seeded
     # from .env.example (which does supply GRAFANA_ADMIN_PASSWORD).
-    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@589ea4656ecba00c278ea02b4dbf754727b18062 # v3.11
+    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@862094798ffb1a50433db7fa8759cca1f54c4dc4 # v3.12
     with:
       shell-scripts-glob: 'scripts/*.sh'
 
