@@ -50,6 +50,14 @@ volumes:
 	  docker volume inspect $$v >/dev/null 2>&1 \
 	    || (echo ">> creating external volume $$v" && docker volume create $$v >/dev/null); \
 	done
+	@# alloy runs as its internal user (uid 473, deploy ADR 0001) and owns
+	@# its positions volume. Idempotent; reuses the alloy image itself so
+	@# airgap hosts need no extra image. Skipped (warning) until the image
+	@# is loaded — run `make volumes` again after `make load`/`make pull`.
+	@ALLOY_IMG=$$(grep -o 'docker\.io/grafana/alloy:[^"]*' docker/compose.yaml | head -1); \
+	docker image inspect $$ALLOY_IMG >/dev/null 2>&1 \
+	  && docker run --rm --entrypoint sh --user root -v alloy-data:/v $$ALLOY_IMG -c 'chown -R 473:473 /v' \
+	  || echo ">> alloy image not loaded yet — re-run 'make volumes' after images are available (alloy-data must be owned by 473:473)"
 
 pull:
 	$(COMPOSE) pull

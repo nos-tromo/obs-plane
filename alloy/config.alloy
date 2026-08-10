@@ -1,8 +1,10 @@
 // Discover every container on the host and ship its stdout/stderr to Loki,
-// labeled by compose project + service. Read-only Docker socket.
+// labeled by compose project + service. The Docker API is reached through
+// the restricted read-only socket-proxy sidecar (deploy ADR 0001) — the
+// raw socket is never mounted into this container.
 
 discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+  host = "tcp://socket-proxy:2375"
 }
 
 discovery.relabel "containers" {
@@ -24,7 +26,7 @@ discovery.relabel "containers" {
 }
 
 loki.source.docker "containers" {
-  host       = "unix:///var/run/docker.sock"
+  host       = "tcp://socket-proxy:2375"
   targets    = discovery.relabel.containers.output
   forward_to = [loki.write.default.receiver]
 }
