@@ -38,3 +38,28 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "Host memory available <10% for 10m"
+  # GPU rules only produce data when the dcgm-exporter runs (`gpu` compose
+  # profile). Memory threshold is 0.95/30m because vLLM deliberately
+  # preallocates ~90% of VRAM — a 0.90 threshold would fire permanently.
+  - name: gpu
+    rules:
+      - alert: GPUHighTemperature
+        expr: DCGM_FI_DEV_GPU_TEMP > 85
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "GPU {{ $labels.gpu }} on {{ $labels.instance }} above 85C for 5m"
+      - alert: GPUECCErrors
+        expr: increase(DCGM_FI_DEV_ECC_DBE_VOL_TOTAL[1h]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: "GPU {{ $labels.gpu }} reported uncorrectable (double-bit) ECC errors in the last 1h"
+      - alert: GPUMemoryAlmostFull
+        expr: >
+          DCGM_FI_DEV_FB_USED
+          / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) > 0.95
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "GPU {{ $labels.gpu }} framebuffer >95% full for 30m"

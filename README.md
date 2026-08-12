@@ -1,15 +1,16 @@
 # obs-plane
 
 Observability plane for the nos-tromo federation: Prometheus + Grafana +
-Loki + Grafana Alloy + node-exporter + cAdvisor + blackbox-exporter, all
-pulled and digest-pinned, bundleable for airgap. A pure consumer in the
+Loki + Grafana Alloy + node-exporter + cAdvisor + blackbox-exporter +
+dcgm-exporter (GPU hosts), all pulled and digest-pinned, bundleable for
+airgap. A pure consumer in the
 `data-plane` mold — it owns its own volumes, joins the shared external
 networks read-only as a scraper, and makes zero changes to any other
 federation member.
 
 ## What lives here
 
-Seven services, all lightweight next to the inference stack.
+Nine services, all lightweight next to the inference stack.
 
 | Service | Role | Network membership |
 |---|---|---|
@@ -21,6 +22,7 @@ Seven services, all lightweight next to the inference stack.
 | `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
+| `dcgm-exporter` | NVIDIA GPU metrics (utilization, VRAM, temperature, power, clocks, ECC); runs only when the `gpu` compose profile is enabled (`COMPOSE_PROFILES=gpu` in `.env`, GPU hosts with the NVIDIA container toolkit) | internal (default) network |
 
 `prometheus` and `blackbox-exporter` join the two shared external
 networks (to reach scrape/probe targets by alias); `grafana` additionally
@@ -31,8 +33,8 @@ services depend on — it is a read-only consumer of all three seams.
 ## Container hardening & residual findings (deploy ADR 0001)
 
 Every service runs with `no-new-privileges` and `cap_drop: ALL`;
-`socket-proxy`, `node-exporter` and `blackbox-exporter` additionally run
-read-only. Alloy no longer mounts the Docker socket — it reaches the API
+`socket-proxy`, `node-exporter`, `blackbox-exporter` and `dcgm-exporter`
+additionally run read-only. Alloy no longer mounts the Docker socket — it reaches the API
 through `socket-proxy`, which enables only the read-only endpoints Alloy
 needs and rejects everything else (403), and it runs as its internal
 uid 473 (`make volumes` chowns `alloy-data` accordingly; on hosts with an
@@ -45,6 +47,12 @@ per-container stats. This is the one remaining socket exposure in the
 stack; it is accepted in exchange for federation-wide container metrics
 and revisited only if an assessment rejects it (see deploy ADR 0001's
 reversal triggers).
+
+`dcgm-exporter` is **not** a second exception: it keeps the full hardened
+shape (no `SYS_ADMIN`), which means DCGM's Datacenter Profiling metrics
+(`DCGM_FI_PROF_*` — tensor/SM occupancy, PCIe/NVLink throughput) are
+deliberately unavailable. The collected NVML-backed set (utilization,
+VRAM, temperature, power, clocks, ECC) is pinned in `dcgm/counters.csv`.
 
 ## What is observable / what is not
 
@@ -61,6 +69,13 @@ Reachable with zero member changes:
   (`data-net`), `qdrant:6333/healthz` (`data-net`).
 - **Logs of every container on the host** — Alloy Docker discovery →
   Loki, labeled by compose project + service.
+- **NVIDIA GPUs** (GPU hosts, `gpu` compose profile) — dcgm-exporter
+  device telemetry: utilization, framebuffer memory, temperature, power,
+  SM clock, memory-bandwidth utilization, ECC error counters. Rendered on
+  the `gpu.json` dashboard; complements the vLLM job's KV-cache metrics,
+  which are model-server-side, not device-side. With the profile off the
+  `dcgm` scrape target reads down — expected, and excluded by
+  `make health`.
 - **obs-plane's own internals** — Prometheus (`prometheus:9090`), Loki
   (`loki:3100/metrics`), and Alloy (`alloy:12345/metrics`, HTTP server
   rebound to `0.0.0.0` so prometheus can reach it) are scraped like any
@@ -117,6 +132,11 @@ default user `admin` / the password set above. `make network` and
 `make volumes` are also prerequisites of `make up`/`make up-dev`, so a
 fresh host can just run `make up-dev` directly.
 
+**GPU hosts**: additionally set `COMPOSE_PROFILES=gpu` in `.env` to run
+`dcgm-exporter` (requires the NVIDIA container toolkit). On hosts without
+it, leave the variable empty — the service never starts, and the `dcgm`
+scrape target reads down (expected; `make health` excludes it).
+
 ## Grafana access on production
 
 Grafana's primary browser path is now the edge gateway:
@@ -165,7 +185,8 @@ make nuke                     # interactive: DESTROY all volumes
 (busybox `wget`, no host tooling required): it asserts Prometheus
 `/-/ready`, then reaches `loki:3100/ready` and `grafana:3000/api/health`
 over the project-internal network, then queries Prometheus's own
-targets API and fails if any scrape target reports down.
+query API and fails if any scrape job reports down — except the `dcgm`
+job, which is excluded unless `.env` enables the `gpu` profile.
 
 `make bundle` bundles the latest annotated release tag; set
 `OBS_PLANE_VERSION_OVERRIDE=<version>` to bundle the current working
@@ -202,6 +223,8 @@ obs-plane/
     config.alloy            Docker discovery → Loki, compose-project/service labels
   blackbox/
     blackbox.yml            http_2xx probe module(s)
+  dcgm/
+    counters.csv            dcgm-exporter collector list (GPU metric set, pinned)
   grafana/
     provisioning/           datasources + dashboard provider config + alerting view
     dashboards/             dashboard JSON, committed

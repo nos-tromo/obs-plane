@@ -1,8 +1,9 @@
 # obs-plane operator targets.
 #
 # Bespoke Makefile (data-plane pattern), NOT make/common.mk: obs-plane pulls
-# rather than builds, has no Python, no profiles, and adds health/nuke
-# targets common.mk does not model. It adopts the shared airgap bundle
+# rather than builds, has no Python, and adds health/nuke targets common.mk
+# does not model. One compose profile exists: `gpu` (dcgm-exporter), enabled
+# per-host via COMPOSE_PROFILES=gpu in .env. It adopts the shared airgap bundle
 # library (scripts/bundle-lib.sh, CI drift-checked) via scripts/bundle_images.sh.
 
 SHELL := /usr/bin/env bash
@@ -38,6 +39,8 @@ help:
 	@echo "  make ps        service status"
 	@echo "  make health    readiness of prom/loki/grafana + all scrape targets up"
 	@echo "  make logs S=prometheus   tail logs for one service"
+	@echo
+	@echo "GPU hosts: set COMPOSE_PROFILES=gpu in .env to run dcgm-exporter."
 
 network:
 	@for n in $(INFERENCE_NET) $(DATA_NET) $(EDGE_NET); do \
@@ -59,8 +62,11 @@ volumes:
 	  && docker run --rm --entrypoint sh --user root -v alloy-data:/v $$ALLOY_IMG -c 'chown -R 473:473 /v' \
 	  || echo ">> alloy image not loaded yet — re-run 'make volumes' after images are available (alloy-data must be owned by 473:473)"
 
+# --profile gpu: always fetch dcgm-exporter too, so airgap prep on a
+# non-GPU build host still bundles the image (profile-gated services are
+# otherwise invisible to pull/config).
 pull:
-	$(COMPOSE) pull
+	$(COMPOSE) --profile gpu pull
 
 bundle:
 	./scripts/bundle_images.sh
@@ -101,9 +107,12 @@ health:
 	@$(COMPOSE) exec -T prometheus wget -qO- http://localhost:9090/-/ready && echo " prometheus: ready"
 	@$(COMPOSE) exec -T prometheus wget -qO- http://loki:3100/ready >/dev/null && echo "loki: ready"
 	@$(COMPOSE) exec -T prometheus wget -qO- http://grafana:3000/api/health >/dev/null && echo "grafana: ready"
-	@down=$$($(COMPOSE) exec -T prometheus wget -qO- http://localhost:9090/api/v1/targets \
-	  | grep -o '"health":"down"' | wc -l | tr -d ' '); \
-	  if [ "$$down" != "0" ]; then echo "FAIL: $$down scrape target(s) down"; exit 1; \
+	@# The dcgm job only has a live target when the `gpu` profile is on;
+	@# exclude it from the down-check otherwise (expected down).
+	@exclude='^$$'; grep -Eq '^COMPOSE_PROFILES=.*gpu' .env 2>/dev/null || exclude='^dcgm$$'; \
+	  down=$$($(COMPOSE) exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=up==0' \
+	    | grep -o '"job":"[^"]*"' | cut -d'"' -f4 | sort -u | grep -Ev "$$exclude" || true); \
+	  if [ -n "$$down" ]; then echo "FAIL: scrape job(s) down:" $$down; exit 1; \
 	  else echo "targets: all up"; fi
 
 logs:

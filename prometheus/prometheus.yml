@@ -12,6 +12,11 @@
 # attach those backends to inference-net — until it merges these targets
 # are DOWN (expected). clip/diarize/vad expose no /metrics endpoint and
 # gliner (Ray Serve) is unconfirmed; all four stay unscraped (see README).
+#
+# The `dcgm` job below targets dcgm-exporter, which only runs when the `gpu`
+# compose profile is enabled (COMPOSE_PROFILES=gpu in .env, GPU hosts only).
+# With the profile off the target is DOWN (expected); `make health` excludes
+# the dcgm job unless .env enables the profile.
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
@@ -82,3 +87,9 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox-exporter:9115
+
+  # NVIDIA GPU metrics — dcgm-exporter, project-internal, gated behind the
+  # `gpu` compose profile. Expected down when the profile is off (see header).
+  - job_name: dcgm
+    static_configs:
+      - targets: ["dcgm-exporter:9400"]
