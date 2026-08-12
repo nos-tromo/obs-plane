@@ -20,6 +20,18 @@ x-logging: &default-logging
     max-file: "5"
     compress: "true"
 
+##########################################################
+# Shared hardening (deploy ADR 0001) — no privilege
+# escalation, all capabilities dropped. cAdvisor is the
+# one deliberate exception (privileged; see its comment
+# and the README's residual-findings section).
+##########################################################
+x-hardened: &hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 networks:
   default:
   inference-net:
@@ -37,6 +49,7 @@ services:
   # Prometheus — metrics store + scraper
   ##########################################################
   prometheus:
+    <<: *hardened
     image: docker.io/prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
     logging: *default-logging
     command:
@@ -63,6 +76,7 @@ services:
   # Grafana — UI; everything provisioned from files
   ##########################################################
   grafana:
+    <<: *hardened
     image: docker.io/grafana/grafana-oss:13.0.2@sha256:5dad0df181cb644a14e13617b913b261a54f7d4fd4510721dba420929f35bea2
     logging: *default-logging
     environment:
@@ -107,6 +121,7 @@ services:
   # Loki — log store (single-binary, filesystem backend)
   ##########################################################
   loki:
+    <<: *hardened
     image: docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc
     logging: *default-logging
     command:
@@ -123,12 +138,47 @@ services:
     restart: unless-stopped
 
   ##########################################################
+  # socket-proxy — restricted, read-only gateway to the Docker API
+  # for Alloy's container discovery + log streaming. The raw socket
+  # never enters the Alloy container anymore (deploy ADR 0001); only
+  # the GET endpoints Alloy needs are enabled — every mutating and
+  # sensitive endpoint (exec, build, volumes, images, POST anything)
+  # stays denied. Joins only the project-internal network.
+  ##########################################################
+  socket-proxy:
+    <<: *hardened
+    image: lscr.io/linuxserver/socket-proxy:3.4.3-r0-ls91@sha256:a6b52255f881951c3cb6b6cce78c3d91435ed201cf16ab77bfe92e9a8ee13121
+    logging: *default-logging
+    environment:
+      - CONTAINERS=1   # GET /containers/* incl. /logs (discovery + tailing)
+      - EVENTS=1       # container lifecycle stream (discovery refresh)
+      - NETWORKS=1     # GET /networks — discovery.docker computes network labels
+      - PING=1
+      # everything else defaults to 0 / denied
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+    networks:
+      default:
+    restart: unless-stopped
+
+  ##########################################################
   # Alloy — ships every container's logs to Loki via the Docker API
-  # (works with the fleet-wide `local` log driver; no driver changes)
+  # (works with the fleet-wide `local` log driver; no driver changes),
+  # reached through socket-proxy above rather than a socket mount.
   ##########################################################
   alloy:
+    <<: *hardened
     image: docker.io/grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308
     logging: *default-logging
+    # The image starts as root only to be able to write its own dirs
+    # (mode 770, owned by the internal `alloy` user — unreachable for
+    # root once DAC_OVERRIDE is dropped). Run as that user directly;
+    # the alloy-data volume must be owned by 473:473 (make volumes
+    # chowns it on creation; runbook covers existing hosts).
+    user: "473:473"
     command:
       - run
       - /etc/alloy/config.alloy
@@ -139,18 +189,20 @@ services:
       - --server.http.listen-addr=0.0.0.0:12345
     volumes:
       - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     depends_on:
       - loki
+      - socket-proxy
     restart: unless-stopped
 
   ##########################################################
   # node-exporter — host metrics
   ##########################################################
   node-exporter:
+    <<: *hardened
     image: docker.io/prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
     logging: *default-logging
+    read_only: true
     command:
       - --path.rootfs=/host
     pid: host
@@ -182,8 +234,10 @@ services:
   # blackbox-exporter — HTTP health probes of federation endpoints
   ##########################################################
   blackbox-exporter:
+    <<: *hardened
     image: docker.io/prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc
     logging: *default-logging
+    read_only: true
     command:
       - --config.file=/etc/blackbox/blackbox.yml
     volumes:

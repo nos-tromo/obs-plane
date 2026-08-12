@@ -16,7 +16,8 @@ Seven services, all lightweight next to the inference stack.
 | `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
 | `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal + `edge-net` (served at `/grafana/` behind the edge gateway) |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
-| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate) | project-internal only; reads `/var/run/docker.sock` (ro) |
+| `socket-proxy` | Restricted read-only gateway to the Docker API for Alloy (only `GET /containers`, `/networks`, `/events`, `/_ping` enabled; every mutating/sensitive endpoint denied) | project-internal only; the sole Alloy-path holder of `/var/run/docker.sock` (ro) |
+| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal only; reaches the Docker API via `socket-proxy:2375` — no socket mount |
 | `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
@@ -26,6 +27,24 @@ networks (to reach scrape/probe targets by alias); `grafana` additionally
 joins `edge-net` so the edge gateway can reach it — the rest stay on the
 project-internal default network. obs-plane claims no alias other
 services depend on — it is a read-only consumer of all three seams.
+
+## Container hardening & residual findings (deploy ADR 0001)
+
+Every service runs with `no-new-privileges` and `cap_drop: ALL`;
+`socket-proxy`, `node-exporter` and `blackbox-exporter` additionally run
+read-only. Alloy no longer mounts the Docker socket — it reaches the API
+through `socket-proxy`, which enables only the read-only endpoints Alloy
+needs and rejects everything else (403), and it runs as its internal
+uid 473 (`make volumes` chowns `alloy-data` accordingly; on hosts with an
+existing volume re-run `make volumes` once).
+
+**Residual finding, deliberately accepted:** `cadvisor` remains
+`privileged: true` with `/var/run` (which includes the Docker socket) and
+`/var/lib/docker` mounted read-only — its documented requirement for full
+per-container stats. This is the one remaining socket exposure in the
+stack; it is accepted in exchange for federation-wide container metrics
+and revisited only if an assessment rejects it (see deploy ADR 0001's
+reversal triggers).
 
 ## What is observable / what is not
 

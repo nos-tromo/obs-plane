@@ -22,7 +22,8 @@ root (e.g. `docker/compose.yaml`).
 
 The **observability tier** of the nos-tromo federation: a Docker Compose
 project of pulled, digest-pinned images (Prometheus + Grafana + Loki +
-Grafana Alloy + node-exporter + cAdvisor + blackbox-exporter) that scrapes
+Grafana Alloy + socket-proxy + node-exporter + cAdvisor +
+blackbox-exporter) that scrapes
 metrics and collects logs from the rest of the host. It is a **pure
 consumer** — it joins the two shared external networks (`inference-net`,
 `data-net`) read-only to scrape/probe targets by alias, owns nothing any
