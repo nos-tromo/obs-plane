@@ -34,10 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: docker compose config
+        # Validated with and without --profile gpu: compose skips
+        # profile-gated services (dcgm-exporter) unless the profile is active,
+        # so the profile-off runs alone would never parse that service block.
         run: |
           cp .env.example .env
           docker compose --env-file .env -f docker/compose.yaml config --quiet
           docker compose -f docker/compose.yaml -f docker/compose.override.yaml --env-file .env config --quiet
+          docker compose --env-file .env --profile gpu -f docker/compose.yaml config --quiet
+          docker compose --profile gpu -f docker/compose.yaml -f docker/compose.override.yaml --env-file .env config --quiet
       - name: promtool check config + rules
         run: |
           docker run --rm -v "$PWD/prometheus:/etc/prometheus:ro" --entrypoint promtool \
@@ -107,3 +112,15 @@ jobs:
       - name: dashboards are valid JSON
         run: |
           for f in grafana/dashboards/*.json; do python3 -m json.tool "$f" > /dev/null; done
+      - name: dcgm counters cover rules + dashboard
+        # dcgm/counters.csv has no upstream validator (a typo'd field only
+        # surfaces at runtime on a GPU host), so at least assert every
+        # DCGM field referenced by the alert rules and the GPU dashboard is
+        # an uncommented entry in the committed collector list.
+        run: |
+          fields=$(grep -ohE 'DCGM_FI_[A-Z0-9_]+' prometheus/rules.yml grafana/dashboards/gpu.json | sort -u)
+          for f in $fields; do
+            grep -qE "^${f}[, ]" dcgm/counters.csv \
+              || { echo "field $f referenced but not collected in dcgm/counters.csv"; exit 1; }
+          done
+          echo "all referenced DCGM fields collected: $fields"

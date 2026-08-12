@@ -7,7 +7,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 [[ -n "${BUNDLE_DEV:-}" ]] || bundle_checkout_release obs-plane
 bundle_version obs-plane; VER="$BUNDLE_VERSION"
 
-COMPOSE=(docker compose --env-file .env -f docker/compose.yaml)
+# --profile gpu: the airgap bundle must include dcgm-exporter even when built
+# on a non-GPU host (`config --images` omits profile-gated services otherwise).
+COMPOSE=(docker compose --env-file .env --profile gpu -f docker/compose.yaml)
 "${COMPOSE[@]}" pull
 bundle_collect_pulled < <("${COMPOSE[@]}" config --images)
 

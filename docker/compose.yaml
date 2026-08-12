@@ -2,7 +2,8 @@
 ###
 ### What this project owns:
 ###   - Prometheus (metrics), Loki (logs), Grafana (UI) + their named volumes
-###   - Collectors: Alloy (logs), node-exporter, cAdvisor, blackbox-exporter
+###   - Collectors: Alloy (logs), node-exporter, cAdvisor, blackbox-exporter,
+###     dcgm-exporter (NVIDIA GPU metrics; `gpu` compose profile only)
 ###
 ### What it does NOT own:
 ###   - inference-net / data-net (external; joined read-only as a scraper)
@@ -246,6 +247,39 @@ services:
       default:
       inference-net:
       data-net:
+    restart: unless-stopped
+
+  ##########################################################
+  # dcgm-exporter — NVIDIA GPU metrics. Gated behind the `gpu`
+  # compose profile: set COMPOSE_PROFILES=gpu in .env on GPU hosts
+  # (requires nvidia-container-toolkit); non-GPU hosts never start it
+  # and its scrape target reads down (expected — see prometheus.yml).
+  # Runs hardened, WITHOUT SYS_ADMIN: DCP profiling metrics
+  # (DCGM_FI_PROF_*) are deliberately unavailable; the collected set
+  # is pinned by ../dcgm/counters.csv (the image default comments out
+  # the ECC counters our alerts need).
+  ##########################################################
+  dcgm-exporter:
+    <<: *hardened
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless@sha256:613ab03c11d442fd960ff515f547e9921537454a712d08160bc8f677f89f1c35
+    logging: *default-logging
+    profiles: ["gpu"]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    command:
+      - -f
+      - /etc/dcgm-exporter/counters.csv
+    volumes:
+      - ../dcgm/counters.csv:/etc/dcgm-exporter/counters.csv:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
 
 ##########################################################

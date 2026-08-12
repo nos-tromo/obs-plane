@@ -23,7 +23,9 @@ root (e.g. `docker/compose.yaml`).
 The **observability tier** of the nos-tromo federation: a Docker Compose
 project of pulled, digest-pinned images (Prometheus + Grafana + Loki +
 Grafana Alloy + socket-proxy + node-exporter + cAdvisor +
-blackbox-exporter) that scrapes
+blackbox-exporter + dcgm-exporter, the last gated behind the `gpu`
+compose profile — `COMPOSE_PROFILES=gpu` in `.env` on NVIDIA hosts
+only) that scrapes
 metrics and collects logs from the rest of the host. It is a **pure
 consumer** — it joins the two shared external networks (`inference-net`,
 `data-net`) read-only to scrape/probe targets by alias, owns nothing any
@@ -35,7 +37,7 @@ parent `../CLAUDE.md`.
 No application code. No Python venv, no test suite, no linter beyond
 config validation. The whole repo is a `Makefile`, two compose files under
 `docker/`, service configs under `prometheus/`, `loki/`, `alloy/`,
-`blackbox/`, `grafana/`, and an airgap bundler under `scripts/`.
+`blackbox/`, `dcgm/`, `grafana/`, and an airgap bundler under `scripts/`.
 
 ## Load-bearing invariants
 
