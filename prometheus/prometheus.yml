@@ -1,6 +1,5 @@
 # Scrape targets reachable with ZERO member-repo changes.
-# Not scrapeable in v1 (see README): Neo4j Community (no metrics endpoint),
-# LiteLLM /metrics (enterprise-gated).
+# Not scrapeable in v1 (see README): Neo4j Community (no metrics endpoint).
 #
 # The `apps` job below scrapes the FastAPI backends, instrumented via
 # prometheus-fastapi-instrumentator (chorus#95, docint#341, Nextext#105,
@@ -70,6 +69,25 @@ scrape_configs:
   - job_name: vllm
     static_configs:
       - targets: ["chat:8000", "embed:8000", "rerank:8000", "asr:8000"]
+
+  # LiteLLM router's own metrics — the routing layer the `vllm` job cannot
+  # see (per-model request counts, end-to-end latency including routing,
+  # failures that never reached a backend). Reached by alias on
+  # inference-net, the same seam the blackbox probe below uses.
+  #
+  # Requires vllm-service to enable LiteLLM's prometheus callback
+  # (nos-tromo/vllm-service#107); until that is deployed this target is DOWN.
+  # Unauthenticated by design on inference-net, matching the `vllm` job —
+  # the router's key doubles as every backend's --api-key, so it is
+  # deliberately not duplicated into this repo.
+  #
+  # metrics_path has a trailing slash: LiteLLM mounts the metrics ASGI
+  # sub-app, so bare /metrics answers 307 to /metrics/. Prometheus would
+  # follow that, but pointing straight at it avoids a redirect per scrape.
+  - job_name: litellm
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ["vllm-router:4000"]
 
   - job_name: blackbox
     metrics_path: /probe
