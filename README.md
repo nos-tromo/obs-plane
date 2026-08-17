@@ -89,13 +89,21 @@ Reachable with zero member changes:
   (unmerged), which attaches those backends to `inference-net`. Until it
   merges, the `vllm` scrape job's targets are down — expected, not a
   regression. See the `vllm.json` dashboard below.
+- **LiteLLM router** (`vllm-router:4000/metrics/`) — the routing layer the
+  `vllm` job cannot see: per-model request counts, end-to-end latency
+  *including* routing, and failures that never reached a backend. Requires
+  vllm-service to enable LiteLLM's Prometheus callback
+  ([nos-tromo/vllm-service#107](https://github.com/nos-tromo/vllm-service/pull/107)),
+  without which the router does not mount `/metrics` at all; until that is
+  deployed the `litellm` target is down — expected. Scraped
+  unauthenticated on `inference-net` like the `vllm` job: the router's
+  master key doubles as every backend's `--api-key`, so it is deliberately
+  not duplicated into this repo. Rendered on the `litellm.json` dashboard.
 
 Explicitly **not** available in v1:
 
 - **Neo4j internal metrics** — Prometheus/CSV metrics are Enterprise-only;
   the federation runs Community. Coverage is cAdvisor + HTTP probe only.
-- **LiteLLM router `/metrics`** — enterprise-gated in current LiteLLM
-  releases. Coverage is cAdvisor + liveliness probe only.
 - **`clip`, `diarize`, `vad` vLLM backends** — expose no `/metrics`
   endpoint at all; cAdvisor coverage only.
 - **`gliner`** — Ray Serve, not `vllm serve`; whether it exposes a
