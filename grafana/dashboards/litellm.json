@@ -11,12 +11,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Request rate by model",
+      "title": "Request rate by route",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "min": 0 },
+        "defaults": { "unit": "reqps", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -24,19 +24,19 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[5m]))",
-          "legendFormat": "{{requested_model}}"
+          "expr": "sum by (route) (rate(litellm_proxy_total_requests_metric_total[5m]))",
+          "legendFormat": "{{route}}"
         }
       ]
     },
     {
       "id": 2,
-      "title": "Failed requests by model and exception",
+      "title": "Failed requests by route and exception",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "min": 0 },
+        "defaults": { "unit": "reqps", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -44,8 +44,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (requested_model, exception_class) (rate(litellm_proxy_failed_requests_metric_total[5m]))",
-          "legendFormat": "{{requested_model}} / {{exception_class}}"
+          "expr": "sum by (route, exception_class) (rate(litellm_proxy_failed_requests_metric_total[5m]))",
+          "legendFormat": "{{route}} / {{exception_class}}"
         }
       ]
     },
@@ -56,7 +56,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
       "fieldConfig": {
-        "defaults": { "unit": "s", "min": 0 },
+        "defaults": { "unit": "s", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -76,7 +76,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
       "fieldConfig": {
-        "defaults": { "unit": "s", "min": 0 },
+        "defaults": { "unit": "s", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -96,7 +96,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
       "fieldConfig": {
-        "defaults": { "unit": "s", "min": 0 },
+        "defaults": { "unit": "s", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -116,7 +116,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "min": 0 },
+        "defaults": { "unit": "reqps", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -142,7 +142,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
       "fieldConfig": {
-        "defaults": { "unit": "none", "min": 0 },
+        "defaults": { "unit": "none", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
@@ -168,7 +168,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 56 },
       "fieldConfig": {
-        "defaults": { "unit": "none", "min": 0 },
+        "defaults": { "unit": "none", "min": 0, "custom": { "spanNulls": true } },
         "overrides": []
       },
       "options": {},
