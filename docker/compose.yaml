@@ -25,7 +25,7 @@ x-logging: &default-logging
 # Shared hardening (deploy ADR 0001) — no privilege
 # escalation, all capabilities dropped. cAdvisor is the
 # one deliberate exception (privileged; see its comment
-# and the README's residual-findings section).
+# and docs/hardening.md).
 ##########################################################
 x-hardened: &hardened
   security_opt:
