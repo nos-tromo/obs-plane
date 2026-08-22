@@ -55,7 +55,10 @@ Reachable with zero member changes:
 - **Logs of every container on the host**: Alloy Docker discovery →
   Loki, labeled by compose project + service.
 
-Explicitly **not** available in v1 (documented in the repo README):
+Explicitly **not** available in v1. **Superseded:** this list records
+coverage as of the v1 design; the current, authoritative target list is
+[coverage.md](coverage.md), which supersedes both the v1 gaps below and
+the follow-ups they became.
 
 - **Neo4j internal metrics** — Prometheus/CSV metrics are Enterprise-only;
   the federation runs Community. Coverage is cAdvisor + HTTP probe only.
