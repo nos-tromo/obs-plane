@@ -77,7 +77,9 @@ for the endpoints and networks behind each line, and
 
 On production Grafana is reached through the edge gateway at
 `https://${EDGE_HOST}/grafana/`, which authenticates the request and
-auto-logs-in the user. See
+auto-logs-in the user. Unlike every other routed app, `/grafana` is
+**restricted to Authelia's `admins` group** — that gate lives in
+edge-plane's `authelia/configuration.yml`, not here. See
 [grafana-access.md](docs/grafana-access.md) for the trusted-header
 contract and the dev-overlay / SSH-tunnel fallbacks.
 

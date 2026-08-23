@@ -11,10 +11,22 @@ Grafana's primary browser path is now the edge gateway:
 Authelia forward-auth. `GF_SERVER_ROOT_URL` / `GF_SERVER_SERVE_FROM_SUB_PATH`
 tell Grafana it is served under `/grafana/`; `GF_AUTH_PROXY_*` configure
 Grafana's auth.proxy so a request carrying the trusted `X-Auth-User`
-header auto-logs-in and auto-provisions that user (default org role
-`${GRAFANA_VIEWER_ROLE:-Viewer}`). This revises the v1 decision (below)
-that treated the tunnel as the only path — that path remains, as the
-admin/fallback route.
+header auto-logs-in and auto-provisions that user, at the org role
+`GF_USERS_AUTO_ASSIGN_ORG_ROLE` sets (`${GRAFANA_VIEWER_ROLE:-Viewer}`).
+All of it is set on the `grafana` service in `docker/compose.yaml`. This
+revises the v1 decision (below) that treated the tunnel as the only
+path — that path remains, as the admin/fallback route.
+
+**Not every authenticated user reaches Grafana.** `/grafana` is the one
+route edge-plane restricts to Authelia's `admins` group; every other
+routed app is open to any provisioned account. The gate is a
+match-then-explicit-deny rule pair in edge-plane's
+`authelia/configuration.yml`, documented in
+[identity-contract.md](../../edge-plane/docs/identity-contract.md#access-control-the-admins-group-grafana-gate).
+It is authorization, not authentication, and obs-plane sees only the
+`X-Auth-User` that got past it — so `${GRAFANA_VIEWER_ROLE:-Viewer}` is
+the role an admin lands on *inside* Grafana, not who is let through the
+door.
 
 `grafana` joins `edge-net` for exactly this reason; it is obs-plane's only
 service on that seam. The gateway side of the contract — the `/grafana/*`
@@ -31,7 +43,8 @@ to `edge-net` could reach `grafana:3000` directly and send an arbitrary
 `X-Auth-User` value, auto-provisioning or impersonating a user. This is
 the same trust posture already accepted by the app frontends
 (chorus/docint/Nextext) that consume the identical header contract; it
-is not a new exposure introduced by this change. Re-evaluate this acceptance if edge-net membership ever grows beyond the gateway, the app frontends, and Grafana.
+is not a new exposure introduced by this change. Re-evaluate this acceptance if edge-net membership ever grows beyond
+the gateway, the four app frontends, Open WebUI, and Grafana.
 
 ## Without the gateway: dev overlay and SSH tunnel
 
