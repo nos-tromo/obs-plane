@@ -103,8 +103,7 @@ only), and Loki's `logs` (`ErrorLogSpike`).
 Eight of the nine services run with `no-new-privileges` and
 `cap_drop: ALL`. The ninth, **`cadvisor`, takes neither and runs
 `privileged: true`** — an accepted residual finding, traded for
-federation-wide container metrics. Baseline
-and both trade-offs:
+federation-wide container metrics. Baseline and both trade-offs:
 [hardening.md](docs/hardening.md#residual-finding-cadvisor-runs-privileged);
 governing decision:
 [deploy ADR 0001](../deploy/docs/decisions/0001-container-engine-docker.md).
@@ -122,8 +121,7 @@ make nuke                     # interactive: DESTROY all volumes
 
 `make help` lists the operator targets (`stop` is an unlisted bare
 compose passthrough; `down` is the documented stop). What `make health`
-checks and the
-`OBS_PLANE_VERSION_OVERRIDE` bundle override are spelled out in
+checks and the `OBS_PLANE_VERSION_OVERRIDE` bundle override are spelled out in
 [`CLAUDE.md`](CLAUDE.md#commands) and the design doc's
 [Makefile section](docs/2026-07-22-obs-plane-design.md#makefile-bespoke-data-plane-style).
 

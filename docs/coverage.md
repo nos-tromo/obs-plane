@@ -47,9 +47,10 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   depends on vllm-service enabling LiteLLM's Prometheus callback
   (`litellm_settings.callbacks: ["prometheus"]` in *that repo's*
   `docker/litellm.config.yaml` — set there today), without which the
-  router does not mount `/metrics` at all. Scraped unauthenticated on `inference-net` like the
-  `vllm` job: the router's master key doubles as every backend's
-  `--api-key`, so it is deliberately not duplicated into this repo.
+  router does not mount `/metrics` at all. Scraped unauthenticated on
+  `inference-net` like the `vllm` job: the router's master key doubles
+  as every backend's `--api-key`, so it is deliberately not duplicated
+  into this repo.
   Rendered on the `litellm.json` dashboard.
 - **FastAPI app metrics** — `chorus-backend:8000`, `docint-backend:8000`,
   `nextext-backend:8000`, `translator-backend:8000` are configured as a
