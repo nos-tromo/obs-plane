@@ -16,7 +16,7 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   restarts, OOM kills) via the Docker socket, across all compose projects
   on the host, including the vLLM backends.
 - **Qdrant** — native `/metrics` on `qdrant:6333` over `data-net`
-  (verified against v1.17.0).
+  (verified against v1.18.3).
 - **Black-box health** — blackbox-exporter HTTP probes of
   `vllm-router:4000/health/liveliness` (`inference-net`), `neo4j:7474`
   (`data-net`), `qdrant:6333/healthz` (`data-net`).
@@ -45,9 +45,9 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   `vllm` job cannot see: per-model request counts, end-to-end latency
   *including* routing, and failures that never reached a backend. It
   depends on vllm-service enabling LiteLLM's Prometheus callback
-  (`litellm_settings.callbacks: ["prometheus"]` in
-  `docker/litellm.config.yaml`), without which the router does not mount
-  `/metrics` at all. Scraped unauthenticated on `inference-net` like the
+  (`litellm_settings.callbacks: ["prometheus"]` in *that repo's*
+  `docker/litellm.config.yaml` — set there today), without which the
+  router does not mount `/metrics` at all. Scraped unauthenticated on `inference-net` like the
   `vllm` job: the router's master key doubles as every backend's
   `--api-key`, so it is deliberately not duplicated into this repo.
   Rendered on the `litellm.json` dashboard.
@@ -57,7 +57,13 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   `prometheus-fastapi-instrumentator` defaults (`http_requests_total`,
   `http_request_duration_seconds` buckets; labeled `method`/`handler`
   (route template)/`status`). All four apps register `GET /metrics` on
-  their FastAPI app. `chorus-backend` and `docint-backend` resolve on
+  their FastAPI app; chorus and docint gate it behind `METRICS_ENABLED`
+  (default `true`), so an `apps` target reading down on a member that is
+  definitely deployed is worth checking against that variable. Nextext
+  additionally exports job-outcome counters (`nextext_jobs_total`,
+  `nextext_jobs_skipped_total`, `nextext_jobs_failed_total`) on the same
+  endpoint; no dashboard here renders them yet.
+  `chorus-backend` and `docint-backend` resolve on
   `data-net` (also on `inference-net`); `nextext-backend` and
   `translator-backend` are `inference-net` only.
 
