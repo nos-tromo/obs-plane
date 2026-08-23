@@ -1,12 +1,12 @@
 # obs-plane
 
 Observability plane for the nos-tromo federation: Prometheus + Grafana +
-Loki + Grafana Alloy + node-exporter + cAdvisor + blackbox-exporter +
-dcgm-exporter (GPU hosts), all pulled and digest-pinned, bundleable for
-airgap. A pure consumer in the
-`data-plane` mold — it owns its own volumes, joins the shared external
-networks read-only as a scraper, and makes zero changes to any other
-federation member.
+Loki + Grafana Alloy + socket-proxy + node-exporter + cAdvisor +
+blackbox-exporter + dcgm-exporter (GPU hosts), all pulled and
+digest-pinned, bundleable for airgap. Built in the `data-plane` mold —
+it owns its own external volumes, and joins all three shared external
+networks: `inference-net` and `data-net` read-only as a scraper,
+`edge-net` so the edge gateway can reach Grafana.
 
 ## What lives here
 
@@ -24,11 +24,13 @@ Nine services, all lightweight next to the inference stack.
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
 | `dcgm-exporter` | NVIDIA GPU metrics (utilization, VRAM, temperature, power, clocks, ECC); runs only when the `gpu` compose profile is enabled (`COMPOSE_PROFILES=gpu` in `.env`, GPU hosts with the NVIDIA container toolkit) | internal (default) network |
 
-`prometheus` and `blackbox-exporter` join the two shared external
-networks (to reach scrape/probe targets by alias); `grafana` additionally
-joins `edge-net` so the edge gateway can reach it — the rest stay on the
-project-internal default network. obs-plane claims no alias other
-services depend on — it is a read-only consumer of all three seams.
+`prometheus` and `blackbox-exporter` join `inference-net` and `data-net`
+(to reach scrape/probe targets by alias); `grafana` joins `edge-net` —
+the rest stay on the project-internal default network. On the first two
+seams obs-plane is a read-only consumer that claims no alias. On
+`edge-net` it publishes exactly one: `grafana`, which edge-plane's Caddy
+proxies `/grafana/*` to
+([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)).
 
 ## Quick start
 
