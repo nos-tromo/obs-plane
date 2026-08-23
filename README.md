@@ -1,12 +1,12 @@
 # obs-plane
 
 Observability plane for the nos-tromo federation: Prometheus + Grafana +
-Loki + Grafana Alloy + node-exporter + cAdvisor + blackbox-exporter +
-dcgm-exporter (GPU hosts), all pulled and digest-pinned, bundleable for
-airgap. A pure consumer in the
-`data-plane` mold — it owns its own volumes, joins the shared external
-networks read-only as a scraper, and makes zero changes to any other
-federation member.
+Loki + Grafana Alloy + socket-proxy + node-exporter + cAdvisor +
+blackbox-exporter + dcgm-exporter (GPU hosts), all pulled and
+digest-pinned, bundleable for airgap. Built in the `data-plane` mold —
+it owns its own external volumes, and joins all three shared external
+networks: `inference-net` and `data-net` read-only as a scraper,
+`edge-net` so the edge gateway can reach Grafana.
 
 ## What lives here
 
@@ -15,7 +15,7 @@ Nine services, all lightweight next to the inference stack.
 | Service | Role | Network membership |
 |---|---|---|
 | `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
-| `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal + `edge-net` (served at `/grafana/` behind the edge gateway) |
+| `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `socket-proxy` | Restricted read-only gateway to the Docker API for Alloy (only `GET /containers`, `/networks`, `/events`, `/_ping` enabled; every mutating/sensitive endpoint denied) | project-internal only; the sole Alloy-path holder of `/var/run/docker.sock` (ro) |
 | `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal only; reaches the Docker API via `socket-proxy:2375` — no socket mount |
@@ -24,11 +24,13 @@ Nine services, all lightweight next to the inference stack.
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
 | `dcgm-exporter` | NVIDIA GPU metrics (utilization, VRAM, temperature, power, clocks, ECC); runs only when the `gpu` compose profile is enabled (`COMPOSE_PROFILES=gpu` in `.env`, GPU hosts with the NVIDIA container toolkit) | internal (default) network |
 
-`prometheus` and `blackbox-exporter` join the two shared external
-networks (to reach scrape/probe targets by alias); `grafana` additionally
-joins `edge-net` so the edge gateway can reach it — the rest stay on the
-project-internal default network. obs-plane claims no alias other
-services depend on — it is a read-only consumer of all three seams.
+`prometheus` and `blackbox-exporter` join `inference-net` and `data-net`
+(to reach scrape/probe targets by alias); `grafana` joins `edge-net` —
+the rest stay on the project-internal default network. On the first two
+seams obs-plane is a read-only consumer that claims no alias. On
+`edge-net` it publishes exactly one: `grafana`, which edge-plane's Caddy
+proxies `/grafana/*` to
+([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)).
 
 ## Quick start
 
@@ -75,7 +77,9 @@ for the endpoints and networks behind each line, and
 
 On production Grafana is reached through the edge gateway at
 `https://${EDGE_HOST}/grafana/`, which authenticates the request and
-auto-logs-in the user. See
+auto-logs-in the user. Unlike every other routed app, `/grafana` is
+**restricted to Authelia's `admins` group** — that gate lives in
+edge-plane's `authelia/configuration.yml`, not here. See
 [grafana-access.md](docs/grafana-access.md) for the trusted-header
 contract and the dev-overlay / SSH-tunnel fallbacks.
 
@@ -84,16 +88,22 @@ contract and the dev-overlay / SSH-tunnel fallbacks.
 Alert rules are committed Prometheus/Loki rule files
 (`prometheus/rules.yml`, `loki/rules/obs-plane.yml`), evaluated by
 Prometheus and Loki themselves and listed read-only in Grafana's Alerting
-view. There is **no notification channel by design** — airgapped
-production has no outbound delivery path. Rule list:
-[the design doc](docs/2026-07-22-obs-plane-design.md#alert-rules-v1-provisioned-no-notification-channel).
+view — Grafana provisions datasources and dashboards, never alert rules.
+There is **no notification channel by design** — airgapped production has
+no outbound delivery path.
+
+Nine rules in four groups: `federation` (`ProbeDown`,
+`ScrapeTargetDown`, `ContainerRestartLooping`), `host`
+(`HostDiskAlmostFull`, `HostMemoryPressure`), `gpu`
+(`GPUHighTemperature`, `GPUECCErrors`, `GPUMemoryAlmostFull` — GPU hosts
+only), and Loki's `logs` (`ErrorLogSpike`).
 
 ## Container hardening
 
-Every service runs with `no-new-privileges` and `cap_drop: ALL`, with one
-deliberate exception: **`cadvisor` runs `privileged: true`** — an accepted
-residual finding, traded for federation-wide container metrics. Baseline
-and both trade-offs:
+Eight of the nine services run with `no-new-privileges` and
+`cap_drop: ALL`. The ninth, **`cadvisor`, takes neither and runs
+`privileged: true`** — an accepted residual finding, traded for
+federation-wide container metrics. Baseline and both trade-offs:
 [hardening.md](docs/hardening.md#residual-finding-cadvisor-runs-privileged);
 governing decision:
 [deploy ADR 0001](../deploy/docs/decisions/0001-container-engine-docker.md).
@@ -109,8 +119,9 @@ make bundle                   # airgap tarball from the latest release tag
 make nuke                     # interactive: DESTROY all volumes
 ```
 
-`make help` lists every target. What `make health` checks and the
-`OBS_PLANE_VERSION_OVERRIDE` bundle override are spelled out in
+`make help` lists the operator targets (`stop` is an unlisted bare
+compose passthrough; `down` is the documented stop). What `make health`
+checks and the `OBS_PLANE_VERSION_OVERRIDE` bundle override are spelled out in
 [`CLAUDE.md`](CLAUDE.md#commands) and the design doc's
 [Makefile section](docs/2026-07-22-obs-plane-design.md#makefile-bespoke-data-plane-style).
 
