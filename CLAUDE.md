@@ -127,8 +127,17 @@ compose itself in `validate-configs` rather than via that shared job).
 
 ## Pointers
 
+- Reference docs index: `docs/README.md`. In particular:
+  - `docs/coverage.md` — every scrape/probe target, the deliberate gaps,
+    and which targets are down by design. **Authoritative** where it
+    disagrees with the dated design doc.
+  - `docs/grafana-access.md` — gateway path, the `X-Auth-User` trust
+    assumption, dev-overlay and SSH-tunnel fallbacks.
+  - `docs/hardening.md` — hardening baseline and the accepted residual
+    findings (cAdvisor `privileged: true`, dcgm profiling metrics).
 - Design: `docs/2026-07-22-obs-plane-design.md` — scope decisions, service
-  table, dashboards, alert rules, follow-ups.
+  table, dashboards, alert rules, follow-ups. Its "What is observable in
+  v1" list is historical; see `docs/coverage.md` for current coverage.
 - Federation bring-up and network seams: `../deploy/README.md`.
 - Workspace-wide conventions and the ten-project map: the infra root
   `../CLAUDE.md`.
