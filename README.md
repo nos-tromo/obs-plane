@@ -15,7 +15,7 @@ Nine services, all lightweight next to the inference stack.
 | Service | Role | Network membership |
 |---|---|---|
 | `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
-| `grafana` | UI; datasources, dashboards, alert rules all file-provisioned | project-internal + `edge-net` (served at `/grafana/` behind the edge gateway) |
+| `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `socket-proxy` | Restricted read-only gateway to the Docker API for Alloy (only `GET /containers`, `/networks`, `/events`, `/_ping` enabled; every mutating/sensitive endpoint denied) | project-internal only; the sole Alloy-path holder of `/var/run/docker.sock` (ro) |
 | `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal only; reaches the Docker API via `socket-proxy:2375` — no socket mount |
@@ -88,9 +88,15 @@ contract and the dev-overlay / SSH-tunnel fallbacks.
 Alert rules are committed Prometheus/Loki rule files
 (`prometheus/rules.yml`, `loki/rules/obs-plane.yml`), evaluated by
 Prometheus and Loki themselves and listed read-only in Grafana's Alerting
-view. There is **no notification channel by design** — airgapped
-production has no outbound delivery path. Rule list:
-[the design doc](docs/2026-07-22-obs-plane-design.md#alert-rules-v1-provisioned-no-notification-channel).
+view — Grafana provisions datasources and dashboards, never alert rules.
+There is **no notification channel by design** — airgapped production has
+no outbound delivery path.
+
+Nine rules in four groups: `federation` (`ProbeDown`,
+`ScrapeTargetDown`, `ContainerRestartLooping`), `host`
+(`HostDiskAlmostFull`, `HostMemoryPressure`), `gpu`
+(`GPUHighTemperature`, `GPUECCErrors`, `GPUMemoryAlmostFull` — GPU hosts
+only), and Loki's `logs` (`ErrorLogSpike`).
 
 ## Container hardening
 
