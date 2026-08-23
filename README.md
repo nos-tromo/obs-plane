@@ -120,7 +120,9 @@ make bundle                   # airgap tarball from the latest release tag
 make nuke                     # interactive: DESTROY all volumes
 ```
 
-`make help` lists every target. What `make health` checks and the
+`make help` lists the operator targets (`stop` is an unlisted bare
+compose passthrough; `down` is the documented stop). What `make health`
+checks and the
 `OBS_PLANE_VERSION_OVERRIDE` bundle override are spelled out in
 [`CLAUDE.md`](CLAUDE.md#commands) and the design doc's
 [Makefile section](docs/2026-07-22-obs-plane-design.md#makefile-bespoke-data-plane-style).

@@ -93,7 +93,9 @@ target.
 `make health` runs every check **from inside the prometheus container**
 (busybox `wget`): Prometheus `/-/ready`, then `loki:3100/ready` and
 `grafana:3000/api/health` over the project-internal network, then the
-Prometheus targets API — it fails if any scrape target is down.
+Prometheus query API for `up == 0` — it fails, naming the jobs, if any
+scrape target is down. The `dcgm` job is excluded from that check unless
+`.env` enables the `gpu` profile.
 
 Config-validation one-liners run in CI (`validate-configs` job) against
 the exact pinned images, and are safe to run locally the same way:
@@ -146,5 +148,5 @@ compose itself in `validate-configs` rather than via that shared job).
   table, dashboards, alert rules, follow-ups. Its "What is observable in
   v1" list is historical; see `docs/coverage.md` for current coverage.
 - Federation bring-up and network seams: `../deploy/README.md`.
-- Workspace-wide conventions and the ten-project map: the infra root
+- Workspace-wide conventions and the twelve-project map: the infra root
   `../CLAUDE.md`.
