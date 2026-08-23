@@ -8,9 +8,11 @@ which also defines the reversal triggers referenced below.
 
 ## Baseline
 
-Every service runs with `no-new-privileges` and `cap_drop: ALL`;
-`socket-proxy`, `node-exporter`, `blackbox-exporter` and `dcgm-exporter`
-additionally run read-only. Alloy no longer mounts the Docker socket — it reaches the API
+Eight of the nine services take the `x-hardened` anchor —
+`no-new-privileges` and `cap_drop: ALL`. `cadvisor` is the exception and
+takes neither (see below). Four of the eight — `socket-proxy`,
+`node-exporter`, `blackbox-exporter` and `dcgm-exporter` — additionally
+run read-only. Alloy no longer mounts the Docker socket — it reaches the API
 through `socket-proxy`, which enables only the read-only endpoints Alloy
 needs and rejects everything else (403), and it runs as its internal
 uid 473 (`make volumes` chowns `alloy-data` accordingly; on hosts with an
@@ -23,10 +25,11 @@ the same file.
 
 ## Residual finding: cAdvisor runs privileged
 
-**Deliberately accepted:** `cadvisor` remains
-`privileged: true` with `/var/run` (which includes the Docker socket) and
-`/var/lib/docker` mounted read-only — its documented requirement for full
-per-container stats. This is the one remaining socket exposure in the
+**Deliberately accepted:** `cadvisor` is the one service that does not
+take the `x-hardened` anchor — it keeps the default capability set and
+runs `privileged: true`, with `/var/run` (which includes the Docker
+socket) and `/var/lib/docker` mounted read-only — its documented
+requirement for full per-container stats. This is the one remaining socket exposure in the
 stack; it is accepted in exchange for federation-wide container metrics
 and revisited only if an assessment rejects it (see deploy ADR 0001's
 reversal triggers).

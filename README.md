@@ -94,9 +94,10 @@ production has no outbound delivery path. Rule list:
 
 ## Container hardening
 
-Every service runs with `no-new-privileges` and `cap_drop: ALL`, with one
-deliberate exception: **`cadvisor` runs `privileged: true`** — an accepted
-residual finding, traded for federation-wide container metrics. Baseline
+Eight of the nine services run with `no-new-privileges` and
+`cap_drop: ALL`. The ninth, **`cadvisor`, takes neither and runs
+`privileged: true`** — an accepted residual finding, traded for
+federation-wide container metrics. Baseline
 and both trade-offs:
 [hardening.md](docs/hardening.md#residual-finding-cadvisor-runs-privileged);
 governing decision:
