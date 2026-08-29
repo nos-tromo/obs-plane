@@ -26,11 +26,18 @@ Grafana Alloy + socket-proxy + node-exporter + cAdvisor +
 blackbox-exporter + dcgm-exporter, the last gated behind the `gpu`
 compose profile — `COMPOSE_PROFILES=gpu` in `.env` on NVIDIA hosts
 only) that scrapes
-metrics and collects logs from the rest of the host. It is a **pure
-consumer** — it joins the two shared external networks (`inference-net`,
-`data-net`) read-only to scrape/probe targets by alias, owns nothing any
-other member depends on, and requires **zero changes to any other
-federation repo**. For how this tier slots into the wider workspace
+metrics and collects logs from the rest of the host.
+
+It joins **all three** shared external networks. On `inference-net` and
+`data-net` it is a pure consumer — it scrapes and probes targets by
+alias and claims no alias of its own. On `edge-net` it is not: `grafana`
+attaches there with the alias `grafana`, which edge-plane's Caddy
+proxies `/grafana/*` to (`../edge-plane/caddy/Caddyfile`), so that alias
+is a cross-repo contract. obs-plane needed no member-repo changes to
+stand up, but the coverage it has today does depend on member-side
+endpoints (`prometheus-fastapi-instrumentator` in the four apps,
+LiteLLM's prometheus callback in vllm-service) and on edge-plane's
+`/grafana` route. For how this tier slots into the wider workspace
 (inference vs state vs apps vs observability, bring-up order), see the
 parent `../CLAUDE.md`.
 
@@ -66,7 +73,7 @@ config validation. The whole repo is a `Makefile`, two compose files under
 ## Commands
 
 ```bash
-make network                  # create external inference-net + data-net (idempotent)
+make network                  # create external inference-net + data-net + edge-net (idempotent)
 make volumes                  # create external prometheus-data/loki-data/grafana-data/alloy-data (idempotent)
 make pull                     # pull all images
 make up                       # production shape — no host ports
@@ -87,7 +94,9 @@ target.
 `make health` runs every check **from inside the prometheus container**
 (busybox `wget`): Prometheus `/-/ready`, then `loki:3100/ready` and
 `grafana:3000/api/health` over the project-internal network, then the
-Prometheus targets API — it fails if any scrape target is down.
+Prometheus query API for `up == 0` — it fails, naming the jobs, if any
+scrape target is down. The `dcgm` job is excluded from that check unless
+`.env` enables the `gpu` profile.
 
 Config-validation one-liners run in CI (`validate-configs` job) against
 the exact pinned images, and are safe to run locally the same way:
@@ -128,8 +137,17 @@ compose itself in `validate-configs` rather than via that shared job).
 
 ## Pointers
 
+- Reference docs index: `docs/README.md`. In particular:
+  - `docs/coverage.md` — every scrape/probe target, the deliberate gaps,
+    and which targets are down by design. **Authoritative** where it
+    disagrees with the dated design doc.
+  - `docs/grafana-access.md` — gateway path, the `X-Auth-User` trust
+    assumption, dev-overlay and SSH-tunnel fallbacks.
+  - `docs/hardening.md` — hardening baseline and the accepted residual
+    findings (cAdvisor `privileged: true`, dcgm profiling metrics).
 - Design: `docs/2026-07-22-obs-plane-design.md` — scope decisions, service
-  table, dashboards, alert rules, follow-ups.
+  table, dashboards, alert rules, follow-ups. Its "What is observable in
+  v1" list is historical; see `docs/coverage.md` for current coverage.
 - Federation bring-up and network seams: `../deploy/README.md`.
-- Workspace-wide conventions and the ten-project map: the infra root
+- Workspace-wide conventions and the twelve-project map: the infra root
   `../CLAUDE.md`.
