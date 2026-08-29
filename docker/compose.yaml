@@ -88,9 +88,6 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
-      # Grafana 13's background installer preinstalls app plugins from
-      # grafana.com on every startup unless disabled — the one remaining
-      # runtime fetch (fails harmlessly but noisily on airgapped hosts).
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
       # Served under /grafana/ behind the edge gateway (edge-plane).
       GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/grafana/"
