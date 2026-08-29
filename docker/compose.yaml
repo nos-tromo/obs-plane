@@ -88,6 +88,7 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
       # Served under /grafana/ behind the edge gateway (edge-plane).
       GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
