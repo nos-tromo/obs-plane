@@ -18,6 +18,10 @@ absolute paths or home directories such as `/Users/<name>/...`,
 permitted paths are relative project paths starting from the project's
 root (e.g. `docker/compose.yaml`).
 
+## Planning
+
+For any non-trivial change (>1 file or any root-cause fix), present a plan and wait for approval BEFORE editing code. Do not start with Edit/Write on a fresh investigation.
+
 ## What obs-plane is
 
 The **observability tier** of the nos-tromo federation: a Docker Compose
@@ -151,3 +155,18 @@ compose itself in `validate-configs` rather than via that shared job).
 - Federation bring-up and network seams: `../deploy/README.md`.
 - Workspace-wide conventions and the twelve-project map: the infra root
   `../CLAUDE.md`.
+
+## Git & PR Workflow
+
+- Never commit directly to `main`; always branch (`feat/`, `fix/`) and open a PR.
+- Never create a NEW PR when an existing PR for the work is open — push additional commits to that branch.
+- Release order is strict: bump VERSION file -> commit -> tag. Never tag before the VERSION bump.
+- Use single, non-compound shell commands for `gh` operations (no `&&` chains); if `gh pr merge` is blocked, fall back to the GitHub MCP merge tool.
+
+## Verification
+
+Before claiming a check is green, run the actual command and paste the output. `git ls-files` does not cover untracked files — use `pre-commit run --all-files`. After opening a PR, confirm CI actually triggered on the latest push before declaring done.
+
+## Communication Style
+
+Keep changes minimal and scoped. Do not add explanatory code comments for trivial or self-evident changes. Do not overwrite existing test files with Write — use Edit to append or modify tests.
