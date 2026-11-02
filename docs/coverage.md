@@ -21,7 +21,11 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   `vllm-router:4000/health/liveliness` (`inference-net`), `neo4j:7474`
   (`data-net`), `qdrant:6333/healthz` (`data-net`).
 - **Logs of every container on the host** — Alloy Docker discovery →
-  Loki, labeled by compose project + service.
+  Loki, labeled by compose project + service. Query-string values are
+  redacted before storage (`?entity_text=<redacted>`; parameter names are
+  kept), so search terms and access tokens in request lines, URLs and
+  referrers never reach Loki — including from sources whose own log format
+  cannot be changed (nginx's error log, upstream images).
 - **NVIDIA GPUs** (GPU hosts, `gpu` compose profile) — dcgm-exporter
   device telemetry: utilization, framebuffer memory, temperature, power,
   SM clock, memory-bandwidth utilization, ECC error counters. Rendered on
