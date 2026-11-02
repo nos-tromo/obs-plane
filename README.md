@@ -18,7 +18,7 @@ Nine services, all lightweight next to the inference stack.
 | `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `socket-proxy` | Restricted read-only gateway to the Docker API for Alloy (only `GET /containers`, `/networks`, `/events`, `/_ping` enabled; every mutating/sensitive endpoint denied) | project-internal only; the sole Alloy-path holder of `/var/run/docker.sock` (ro) |
-| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal only; reaches the Docker API via `socket-proxy:2375` — no socket mount |
+| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, with query-string values redacted on the way (`?q=<redacted>`), log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal only; reaches the Docker API via `socket-proxy:2375` — no socket mount |
 | `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |

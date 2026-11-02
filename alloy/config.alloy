@@ -28,7 +28,23 @@ discovery.relabel "containers" {
 loki.source.docker "containers" {
   host       = "tcp://socket-proxy:2375"
   targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.redact.receiver]
+}
+
+// Redact query-string values before anything is stored. Request lines, URLs
+// and referrers in access and error logs carry search terms, entity names
+// and per-object access tokens as query parameters; the parameter names stay
+// for debugging, every value becomes <redacted>. Applied here, centrally,
+// because some sources cannot be configured not to log them: nginx's error
+// log has a fixed line format, and the pulled upstream images log their own
+// request URIs.
+loki.process "redact" {
   forward_to = [loki.write.default.receiver]
+
+  stage.replace {
+    expression = `[?&][^=&\s"'#]+=([^&\s"'#]+)`
+    replace    = "<redacted>"
+  }
 }
 
 loki.write "default" {
