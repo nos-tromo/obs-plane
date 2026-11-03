@@ -18,12 +18,15 @@ Subcommands (operator guide: docs/audit.md):
     of that day's full export, and the chain heads at the end of the day.
 
 A hash chain proves that lines were not altered, not who wrote them, so
-every chained event is first bound to where it came from: its ``service``
-must equal, ignoring case, the ``compose_project`` label Alloy took from the
-Docker API, which a container cannot set for itself. An event that does not,
-or that arrived without the label, is a ``foreign_source`` problem and is
-kept out of the chains. Problems are reported by kind, service, instance and
-sequence number, never with event content.
+every chained line is first bound to where it came from, by the labels Alloy
+took from the Docker API, which a container cannot set for itself. A new
+chain is bound to its project: an event whose ``service`` is not, ignoring
+case, the line's ``compose_project`` (or a line without that label) is a
+``foreign_source`` problem. Every chain is bound to the container it was
+first seen from: a line for a known chain from any other container is a
+``source_mismatch`` problem. Either way the line is kept out of the chains.
+Problems are reported by kind, service, instance and sequence number, never
+with event content.
 
 Stdlib only; Python 3.12+. Reads loki-audit through its read-only proxy
 (loki-audit-read) and never writes to it.
@@ -70,6 +73,7 @@ PROBLEM_KINDS = (
     "service_mismatch",
     "unterminated",
     "foreign_source",
+    "source_mismatch",
 )
 METRICS_PORT = 9105
 #: Lines per query (Loki's default ``max_entries_limit_per_query``), and the
@@ -515,6 +519,8 @@ class State:
         problems: Problems found so far, by kind.
         unchained: Unchained audit-lane lines seen so far, by compose project.
         heads: The last verified position of each chain.
+        sources: ``instance -> (compose project, container)`` each chain was
+            first seen from; kept and pruned together with ``heads``.
         seen: ``event_id -> (line digest, store time)`` of recently checked
             events, so re-read lines are skipped.
     """
@@ -526,6 +532,7 @@ class State:
     problems: dict[str, int] = field(default_factory=lambda: dict.fromkeys(PROBLEM_KINDS, 0))
     unchained: dict[str, int] = field(default_factory=dict)
     heads: dict[str, ChainHead] = field(default_factory=dict)
+    sources: dict[str, tuple[str, str]] = field(default_factory=dict)
     seen: dict[str, tuple[str, int]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, object]:
@@ -543,6 +550,7 @@ class State:
             "problems": self.problems,
             "unchained": self.unchained,
             "heads": {instance: dataclasses.asdict(head) for instance, head in self.heads.items()},
+            "sources": {instance: list(source) for instance, source in self.sources.items()},
             "seen": {event_id: list(value) for event_id, value in self.seen.items()},
         }
 
@@ -571,6 +579,7 @@ class State:
             problems=problems,
             unchained={str(k): int(v) for k, v in data.get("unchained", {}).items()},
             heads={instance: ChainHead(**head) for instance, head in data.get("heads", {}).items()},
+            sources={str(k): (str(v[0]), str(v[1])) for k, v in data.get("sources", {}).items()},
             seen={str(k): (str(v[0]), int(v[1])) for k, v in data.get("seen", {}).items()},
         )
 
@@ -629,11 +638,14 @@ def check_window(
 ) -> tuple[int, list[ChainProblem]]:
     """Check one window of chained lines and advance the chain heads.
 
-    Every line is first bound to its source: an event whose ``service`` is
-    not, ignoring case, the line's ``compose_project`` label, or a line
-    without that label, is a ``foreign_source`` problem and stays out of the
-    chains — a container could otherwise print a complete fake chain in
-    another service's name.
+    Every line is first bound to its source, by its labels. An event whose
+    ``service`` is not, ignoring case, the line's ``compose_project``, or a
+    line without that label, is a ``foreign_source`` problem — a container
+    could otherwise print a complete fake chain in another service's name. A
+    line for a chain already bound to another (project, container) is a
+    ``source_mismatch`` problem — a sibling container could otherwise make a
+    legitimate chain look tampered with. Both stay out of the chains; the
+    first accepted line of a chain binds it to its container.
 
     Lines whose ``event_id`` was already checked with identical content are
     skipped (re-read pages, a line ingested twice); a different line under a
@@ -647,7 +659,7 @@ def check_window(
     the future cannot make every other chain look silent.
 
     Args:
-        state: Heads and recently seen ids; updated in place.
+        state: Heads, chain sources and recently seen ids; updated in place.
         entries: The window's chained lines, oldest first.
         silence_ns: How long an open chain may stay silent before it is
             reported ``unterminated``; also the margin within which a chain
@@ -665,37 +677,47 @@ def check_window(
     events: list[tuple[Entry, dict[str, Any]]] = []
     malformed: list[object] = []
     for entry in entries:
-        project = dict(entry.labels).get("compose_project", "")
+        labels = dict(entry.labels)
+        project = labels.get("compose_project", "")
+        container = labels.get("container", "")
         try:
             event: object = json.loads(entry.line)
         except ValueError:
             problems.append(ChainProblem(safe(project), "?", None, "schema", "line is not JSON"))
             continue
         fields: dict[str, Any] = event if isinstance(event, dict) else {}
-        service = fields.get("service")
-        foreign = not project or (isinstance(service, str) and service.lower() != project.lower())
+        service, instance = fields.get("service"), fields.get("instance")
+        bound = state.sources.get(instance) if isinstance(instance, str) else None
+        kind = detail = None
+        if not project or (isinstance(service, str) and service.lower() != project.lower()):
+            kind = "foreign_source"
+            detail = f"claims service {_label(service)}, sent from project {_label(project or None)}"
+        elif bound is not None and bound != (project, container):
+            kind = "source_mismatch"
+            detail = f"chain of container {_label(bound[1] or None)}, sent from {_label(container or None)}"
         event_id = fields.get("event_id")
         if isinstance(event_id, str):
-            key = f"{event_id}\x00{project}" if foreign else event_id
+            key = event_id if kind is None else f"{event_id}\x00{project}\x00{container}"
             digest = hashlib.sha256(entry.line.encode("utf-8")).hexdigest()[:32]
             prior = state.seen.get(key)
             if prior is not None and prior[0] == digest:
                 continue
             if prior is None:
                 state.seen[key] = (digest, entry.ts_ns)
-        if foreign:
+        if kind is not None and detail is not None:
             seq = fields.get("seq")
-            detail = f"claims service {_label(service)}, sent from project {_label(project or None)}"
             problems.append(
                 ChainProblem(
                     service=safe(project),
-                    instance=_label(fields.get("instance")),
+                    instance=_label(instance),
                     seq=seq if isinstance(seq, int) and not isinstance(seq, bool) else None,
-                    kind="foreign_source",
+                    kind=kind,
                     detail=detail,
                 )
             )
             continue
+        if isinstance(instance, str):
+            state.sources.setdefault(instance, (project, container))
         if isinstance(event, dict):
             events.append((entry, event))
         else:
@@ -745,6 +767,8 @@ def check_window(
 def prune(state: State, *, seen_before_ns: int, heads_before_ns: int) -> None:
     """Forget ids that can no longer be re-read and chains closed long ago.
 
+    A chain's source binding goes with its head.
+
     Args:
         state: Updated in place.
         seen_before_ns: Drop remembered event ids stored before this time.
@@ -754,6 +778,7 @@ def prune(state: State, *, seen_before_ns: int, heads_before_ns: int) -> None:
     for instance, head in list(state.heads.items()):
         if head.closed and (_time_ns(head.ts) or 0) < heads_before_ns:
             del state.heads[instance]
+    state.sources = {instance: source for instance, source in state.sources.items() if instance in state.heads}
 
 
 @dataclass(frozen=True)

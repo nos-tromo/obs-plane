@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 import audit_event
 import pytest
 import verifier as v
-from audit_event import Actor, AuditEmitter, ChainProblem
+from audit_event import Actor, AuditEmitter, ChainHead, ChainProblem
 
 NS = v.NS
 T0 = v.parse_time("2026-03-01T00:00:00Z", "t")
@@ -357,6 +357,68 @@ def test_a_chain_keeps_one_service() -> None:
 
     assert [(problem.kind, problem.seq) for problem in result.problems] == [("service_mismatch", 2)]
     assert result.heads[chain.instance].seq == 1
+
+
+def test_a_sibling_container_cannot_write_into_a_chain() -> None:
+    """A line for a known chain from another container of the same project is set aside."""
+    loki = FakeLoki()
+    chain = Chain("docint")
+    chain.query(2)
+    lines = chain.take()
+    put(loki, lines, T0 + NS, NS, labels("docint"))
+    forged = json.loads(lines[2])  # a valid continuation, printed by the project's frontend
+    forged.update(seq=3, prev_hash=forged["hash"], event_id="01a1a000-0000-7000-8000-000000000001")
+    forged["hash"] = audit_event.event_hash(forged)
+    loki.add(T0 + 10 * NS, audit_event.canonical_json(forged), labels("docint", "docint-frontend"))
+    loki.add(T0 + 15 * NS, lines[1], labels("docint", "docint-frontend"))  # a verbatim replay
+    chain.query(1)
+    chain.close()
+    put(loki, chain.take(), T0 + 20 * NS, NS, labels("docint"))
+
+    result = v.check_range(loki, CFG, T0, T0 + 3600 * NS)
+
+    assert [(problem.kind, problem.seq) for problem in result.problems] == [
+        ("source_mismatch", 3),
+        ("source_mismatch", 1),
+    ]
+    assert result.problems[0].detail == (
+        "chain of container docint-docint-backend-1, sent from docint-docint-frontend-1"
+    )
+    head = result.heads[chain.instance]
+    assert (head.seq, head.closed) == (4, True)
+
+
+def test_the_container_binding_survives_a_restart(tmp_path: Path) -> None:
+    """A restarted verifier still knows which container each open chain belongs to."""
+    loki = FakeLoki()
+    chain = Chain("docint")
+    chain.query(1)
+    put(loki, chain.take(), T0 + NS, NS, labels("docint"))
+    path = tmp_path / "state.json"
+    first = v.State()
+    v.run_once(loki, first, CFG, now_ns=T0 + 600 * NS, persist=lambda: first.save(path))
+
+    second = v.State.load(path)
+    assert second.sources == {chain.instance: ("docint", "docint-docint-backend-1")}
+    chain.query(1)
+    put(loki, chain.take(), T0 + 700 * NS, NS, labels("docint", "docint-worker"))
+    found = v.run_once(loki, second, CFG, now_ns=T0 + 800 * NS)
+
+    assert [(problem.kind, problem.instance) for problem in found] == [("source_mismatch", chain.instance)]
+    assert second.heads[chain.instance].seq == 1
+
+
+def test_pruning_drops_the_binding_with_its_head() -> None:
+    """A chain closed long ago is forgotten together with its container binding."""
+    stamp = "2026-02-01T00:00:00.000Z"
+    old = ChainHead(service="docint", instance="a" * 16, seq=3, hash="0" * 64, ts=stamp, closed=True)
+    live = ChainHead(service="docint", instance="b" * 16, seq=3, hash="0" * 64, ts=stamp, closed=False)
+    state = v.State(heads={old.instance: old, live.instance: live})
+    state.sources = {old.instance: ("docint", "docint-a-1"), live.instance: ("docint", "docint-b-1")}
+
+    v.prune(state, seen_before_ns=0, heads_before_ns=T0)
+
+    assert set(state.heads) == set(state.sources) == {live.instance}
 
 
 def test_first_pass_takes_up_running_chains_but_flags_a_missing_start() -> None:

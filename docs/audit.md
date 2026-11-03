@@ -110,15 +110,31 @@ reach the store late are still checked.
 
 ### Source binding
 
-A hash chain proves that lines were not altered, not who wrote them: any
-container could print a complete, internally consistent chain in another
-service's name. So before any chain check the verifier binds every event to
-where it came from. The event's `service` must equal, ignoring case, the
-`compose_project` label of the line — Alloy sets that label from the Docker
-API, and a container cannot set it for itself. An event that does not match,
-or a line that arrived without the label, is a `foreign_source` problem and
-is kept out of the chains entirely. An emitter's `service` is therefore its
-compose project name (`chorus`, `docint`, `nextext`, `translator`).
+A hash chain proves that lines were not altered, not who wrote them. So
+before any chain check the verifier binds every line to where it came from,
+by the `compose_project` and `container` labels Alloy takes from the Docker
+API, which a container cannot set for itself:
+
+- **A new chain is bound to its project.** The event's `service` must equal,
+  ignoring case, the line's `compose_project`. An event that does not, or a
+  line that arrived without the label, is a `foreign_source` problem —
+  otherwise any container could print a complete, internally consistent
+  chain in another service's name. An emitter's `service` is therefore its
+  compose project name (`chorus`, `docint`, `nextext`, `translator`).
+- **Every chain is bound to its first container.** The verifier remembers
+  the project and container each chain was first seen from, with the chain
+  heads in its state, so the binding survives restarts. A line for a known
+  chain from any other container — even one of the same project, such as an
+  app's frontend next to its backend — is a `source_mismatch` problem.
+  Otherwise such a container could print lines carrying a known chain's
+  instance id and make the legitimate chain look tampered with. A
+  legitimate chain never changes container: recreating a container starts a
+  new process, and so a new chain.
+
+Lines with either problem are kept out of the chains entirely; the
+legitimate chain goes on verifying. Within a chain, the audit library also
+sets aside an event that names another service than the chain
+(`service_mismatch`).
 
 What source binding cannot cover: whoever has root on the host, or write
 access to the audit store itself, can still fabricate lines — with any label
@@ -147,6 +163,7 @@ silences every chain at once, yields none.
 | `service_mismatch` | An event names another service than the rest of its chain; it is left out of the chain |
 | `schema` | A marked line is not a well-formed event |
 | `foreign_source` | An event names another service than the compose project it was sent from, or arrived without one; it is not chain-checked |
+| `source_mismatch` | A line for a known chain arrived from another container than the chain's first; it is not chain-checked |
 | `unterminated` | A chain stopped without a shutdown event |
 
 Problems go to the verifier's log as kind, service, instance and sequence
@@ -226,6 +243,12 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
   Take them every day.
 - **The gateway and Open WebUI are not chained.** For their lines the anchors
   are the only integrity control.
+- **New chains are bound to a project, not a container.** Any container of
+  a project can start chains of its own in that project's name; the
+  container binding protects chains that already exist. In a range checked
+  from scratch (`make audit-verify`, the verifier's first start), a chain
+  that began before the range is bound to the container of its first line
+  inside it.
 - **Late lines.** Loki answers queries about the last three hours from
   memory and older ones from flushed chunks. A line that reaches the store
   more than three hours after it was written (after a long collector outage)
