@@ -35,10 +35,16 @@ loki.source.docker "containers" {
   forward_to = [loki.process.lane.receiver]
 }
 
-// Mark audit records with lane="audit": hash-chained events from the shared
-// audit library ("stream":"audit"), Open WebUI's audit log ("auditable":
-// true, compact or spaced JSON) and the edge gateway's access log ("logger":
-// "http.log.access...").
+// Mark audit records with lane="audit":
+//   - hash-chained events from the shared audit library ("stream":"audit"),
+//     from any container: the verifier binds each one to its source;
+//   - the edge gateway's access log ("logger":"http.log.access..."), only
+//     from the gateway's own container;
+//   - Open WebUI's audit log ("auditable": true, compact or spaced JSON),
+//     only from Open WebUI's own container.
+// These two carry no chain, so their source is checked here: the same text
+// from any other container is an ordinary line and goes to the ops lane,
+// redacted.
 //
 // The audit store's own services (store, read proxy, Grafana and its guard)
 // go to neither lane: their logs can name what reviewers searched for, so
@@ -54,7 +60,27 @@ loki.process "lane" {
   }
 
   stage.match {
-    selector = `{lane!="audit"} |~ "\"stream\":\"audit\"|\"auditable\": ?true|\"logger\":\"http\\.log\\.access"`
+    selector = `{lane!="audit"} |= "\"stream\":\"audit\""`
+
+    stage.static_labels {
+      values = {
+        lane = "audit",
+      }
+    }
+  }
+
+  stage.match {
+    selector = `{compose_project="edge-plane", compose_service="caddy"} |= "\"logger\":\"http.log.access"`
+
+    stage.static_labels {
+      values = {
+        lane = "audit",
+      }
+    }
+  }
+
+  stage.match {
+    selector = `{compose_project="open-webui-service", compose_service="open-webui"} |~ "\"auditable\": ?true"`
 
     stage.static_labels {
       values = {

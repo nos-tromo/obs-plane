@@ -94,7 +94,12 @@ edge-secret check).
 - **Audit records never reach the ops Loki.** One stage,
   `loki.process "lane"` in `alloy/config.alloy`, marks them
   (`lane="audit"`); the audit pipeline keeps only marked lines, the ops
-  pipeline drops them before redacting. `scripts/check_alloy_lanes.sh`
+  pipeline drops them before redacting. Chained lines (`"stream":"audit"`)
+  are marked from any container (the verifier binds them to their source);
+  the gateway's and Open WebUI's markers only from their own containers —
+  `edge-plane`/`caddy` and `open-webui-service`/`open-webui`, a cross-repo
+  contract: renaming either compose project or service needs the selector
+  changed with it. `scripts/check_alloy_lanes.sh`
   (CI) runs the real config on `alloy/lanes-test/` fixtures; regenerate
   `expected.txt` with `--update` only for an intended routing change, and
   read the diff. The logs of `loki-audit`, `loki-audit-read`,

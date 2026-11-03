@@ -15,8 +15,8 @@ reference for the store itself.
 | Producer | Lines | Integrity |
 |---|---|---|
 | Federation services using the shared audit library (`audit_event.py`, canonical in `nos-tromo/.github`, vendored here as `audit/audit_event.py`) | One JSON line per event, marked `"stream":"audit"`: action, operation, outcome, actor, stated purpose, references and bounded search criteria, never content | Hash chain per process, re-checked by the verifier |
-| The edge gateway's access log (edge-plane's Caddy, `"logger":"http.log.access…"`) | One line per request: account (`user`), request id (`uuid`), path without its query string, status | Daily anchors only |
-| Open WebUI's audit log (`"auditable": true`) | One record per authenticated API request, without request or response bodies | Daily anchors only |
+| The edge gateway's access log (`"logger":"http.log.access…"`), accepted only from edge-plane's `caddy` container | One line per request: account (`user`), request id (`uuid`), path without its query string, status | Daily anchors only |
+| Open WebUI's audit log (`"auditable": true`), accepted only from open-webui-service's `open-webui` container | One record per authenticated API request, without request or response bodies | Daily anchors only |
 
 Each chain belongs to one process. Its events carry `seq` and the hash of the
 previous event, so a removed, inserted, reordered or altered line breaks the
@@ -28,9 +28,16 @@ chain. A `start` event opens it, a `heartbeat` follows every 60 s, and a
 Alloy (`alloy/config.alloy`) reads every container's output once and decides
 per line, in one place (`loki.process "lane"`):
 
-- **Audit records** — lines matching any of the three markers above — get
-  the label `lane="audit"` and go to `loki-audit`, **unredacted**: the search
-  criteria in them are part of the record.
+- **Audit records** get the label `lane="audit"` and go to `loki-audit`,
+  **unredacted**: the search criteria in them are part of the record. A
+  chained line (`"stream":"audit"`) counts from any container, because the
+  verifier binds each one to its source ([Source binding](#source-binding)).
+  The two third-party markers carry no chain, so they count only from their
+  own containers: the gateway's from compose project `edge-plane`, service
+  `caddy`; Open WebUI's from `open-webui-service`, service `open-webui`.
+  The same text printed by any other container is an ordinary line — it
+  goes to the operational Loki, redacted — so no container can slip a fake
+  gateway or Open WebUI record into the trail.
 - **Everything else** goes to the operational Loki, with query-string values
   redacted as before.
 - **The audit store's own logs** (`loki-audit`, `loki-audit-read`,
