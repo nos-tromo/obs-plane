@@ -1,0 +1,42 @@
+# loki-audit-read: the readers' only way into the audit store
+# (docs/audit.md#access).
+#
+# loki-audit has no authentication, and Grafana's datasource proxy forwards
+# any method to a Loki datasource, so a reader who could reach loki-audit
+# directly could push lines or call its admin endpoints. grafana-audit and
+# audit-verifier therefore reach it only through this nginx, on the internal
+# audit-read network: GET and HEAD on Loki's read API, 403 for everything
+# else. Only alloy, the writer, reaches loki-audit itself (audit network).
+#
+# Loki receives the path nginx matched — normalized, with dot segments and
+# percent-encoding resolved ($uri) — never the client's raw request line, so
+# what is checked here is what Loki routes. Name segments allow label-name
+# characters only, so nothing decoded (spaces, line breaks, "?") is passed on.
+#
+# No access log: request URIs carry reviewers' queries.
+
+server {
+    listen 3100;
+    server_tokens off;
+    access_log off;
+
+    # Docker's embedded DNS, re-resolved so a recreated loki-audit is found.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $loki http://loki-audit:3100;
+
+    location = /ready {
+        limit_except GET { deny all; }
+        proxy_pass $loki$uri$is_args$args;
+    }
+
+    location ~ ^/loki/api/v1/(query|query_range|labels|label/[A-Za-z0-9_.:-]+/values|series|index/(stats|volume|volume_range)|detected_labels|detected_fields|detected_field/[A-Za-z0-9_.:-]+/values|patterns|format_query|status/buildinfo)$ {
+        limit_except GET { deny all; }
+        proxy_pass $loki$uri$is_args$args;
+        proxy_http_version 1.1;
+        proxy_read_timeout 120s;
+    }
+
+    location / {
+        return 403;
+    }
+}

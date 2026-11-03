@@ -1,0 +1,3 @@
+2026-11-03 07:00:00.000 | INFO     | open_webui.utils.audit:_log_audit_entry:358 -  - {"auditable":true,"id":"a1b2","user":{"id":"u-1","name":"jane.doe","email":"jane.doe@example.org","role":"user"},"audit_level":"METADATA","verb":"GET","request_uri":"http://open-webui:8080/api/v1/chats/?page=1","response_status_code":200}
+{"ts": "2026-11-03T07:00:01.000+00:00", "level": "info", "msg": "", "caller": "open_webui.utils.audit:_log_audit_entry:358", "extra": {"auditable": true, "id": "a1b3", "verb": "POST", "request_uri": "http://open-webui:8080/api/v1/chats/new?x=1"}}
+2026-11-03 07:00:02.000 | INFO     | uvicorn.protocols.http.httptools_impl:send:476 - 10.0.0.9:0 - "GET /api/models?refresh=true HTTP/1.1" 200

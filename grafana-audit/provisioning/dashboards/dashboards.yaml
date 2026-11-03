@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: audit
+    folder: Audit
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards

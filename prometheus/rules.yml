@@ -63,3 +63,28 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "GPU {{ $labels.gpu }} framebuffer >95% full for 30m"
+  # Audit lane (docs/audit.md). The verifier re-checks the hash chains in
+  # loki-audit every AUDIT_VERIFY_INTERVAL seconds; these fire on what it
+  # finds and when it stops finding anything.
+  - name: audit
+    rules:
+      - alert: AuditChainProblem
+        expr: sum by (kind) (increase(audit_chain_problems_total[15m])) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: "Audit trail: {{ $labels.kind }} found in the last 15m (make audit-verify FROM= TO=)"
+      - alert: AuditVerifierStale
+        expr: >
+          time() - audit_verifier_last_success_timestamp_seconds
+          > 3 * audit_verifier_interval_seconds
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "Audit verifier has not completed a run for more than 3 intervals"
+      - alert: AuditVerifierDown
+        expr: up{job="audit-verifier"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Audit verifier unreachable for 5m"

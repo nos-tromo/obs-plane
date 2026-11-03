@@ -1,0 +1,1 @@
+2026/11/03 07:00:06 [error] 22#22: *9 upstream timed out (110: Operation timed out) while reading response header from upstream, client: 172.30.0.5, server: , request: "GET /audit/api/datasources/uid/loki-audit/resources/label/user/values?query=%7Blane%3D%22audit%22%7D HTTP/1.1", upstream: "http://127.0.0.1:3001/audit/api/datasources/uid/loki-audit/resources/label/user/values"

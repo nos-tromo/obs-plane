@@ -1,0 +1,2 @@
+{"level":"info","ts":1762156800.123,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"10.0.0.5","method":"GET","host":"edge.example.internal","uri":"/docint/api/search?<redacted>"},"user":"jane.doe","uuid":"0b9c2f3e-1111-4222-8333-444455556666","status":200}
+{"level":"info","ts":1762156801.5,"logger":"tls","msg":"cleaning storage unit","storage":"FileStorage:/data/caddy"}

@@ -2,3 +2,5 @@
 *.tar.gz
 .obs-plane-version
 *.code-workspace
+audit-exports/
+__pycache__/

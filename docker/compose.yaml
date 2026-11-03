@@ -4,6 +4,8 @@
 ###   - Prometheus (metrics), Loki (logs), Grafana (UI) + their named volumes
 ###   - Collectors: Alloy (logs), node-exporter, cAdvisor, blackbox-exporter,
 ###     dcgm-exporter (NVIDIA GPU metrics; `gpu` compose profile only)
+###   - The audit lane (docs/audit.md): loki-audit, grafana-audit and
+###     audit-verifier + their named volumes
 ###
 ### What it does NOT own:
 ###   - inference-net / data-net (external; joined read-only as a scraper)
@@ -35,6 +37,14 @@ x-hardened: &hardened
 
 networks:
   default:
+  # The audit store's write side: loki-audit with its only writer (alloy)
+  # and its read proxy. Nothing else can reach loki-audit.
+  audit:
+    internal: true
+  # The audit store's read side: loki-audit-read (GET on Loki's read API
+  # only) with its two readers, grafana-audit and audit-verifier.
+  audit-read:
+    internal: true
   inference-net:
     external: true
     name: ${INFERENCE_NET:-inference-net}
@@ -92,13 +102,18 @@ services:
       # Served under /grafana/ behind the edge gateway (edge-plane).
       GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Loopback only: grafana-guard owns :3000 in this network namespace
+      # and is the only thing that can reach Grafana.
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3001"
       # Identity comes from the gateway's trusted header (Authelia
-      # forward-auth); the gateway strips it from clients. Login form
-      # stays enabled for the dev-override/tunnel path (admin).
+      # forward-auth), accepted only from the guard. Login form stays
+      # enabled for the dev-override/tunnel path (admin).
       GF_AUTH_PROXY_ENABLED: "true"
       GF_AUTH_PROXY_HEADER_NAME: "X-Auth-User"
       GF_AUTH_PROXY_HEADER_PROPERTY: "username"
       GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: 127.0.0.1
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: ${GRAFANA_VIEWER_ROLE:-Viewer}
     volumes:
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
@@ -112,11 +127,45 @@ services:
       prometheus:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+
+  ##########################################################
+  # grafana-guard — the only listener on :3000 in grafana's
+  # network namespace (network_mode below), so it answers for
+  # the `grafana` alias on edge-net, for prometheus and for the
+  # dev host port. Grafana trusts X-Auth-User but cannot check
+  # who sent it; this nginx passes the identity headers on only
+  # when X-Edge-Secret equals GRAFANA_EDGE_SECRET, the value the
+  # edge gateway sends. Unset secret: headers pass as before.
+  # Config: nginx/grafana-guard.conf.template.
+  ##########################################################
+  grafana-guard:
+    <<: *hardened
+    image: docker.io/nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+    logging: *default-logging
+    network_mode: "service:grafana"
+    # nginx (unprivileged image, uid 101) writes pid/temp under /tmp; the
+    # entrypoint renders the template into /etc/nginx/conf.d at startup
+    # (mode=1777: the tmpfs shadows the image dir root-owned).
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+      - /etc/nginx/conf.d:size=1m,mode=1777
+    environment:
+      # Always defined (possibly empty): envsubst leaves an undefined
+      # variable's ${...} literally in the config.
+      EDGE_SECRET: ${GRAFANA_EDGE_SECRET:-}
+      EDGE_SECRET_REQUIRED: "0"
+    volumes:
+      - ../nginx/grafana-guard.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ../scripts/edge_secret_check.sh:/docker-entrypoint.d/05-edge-secret-check.sh:ro
+    depends_on:
+      - grafana
     restart: unless-stopped
 
   ##########################################################
@@ -192,8 +241,12 @@ services:
     volumes:
       - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy/data
+    networks:
+      default:
+      audit:
     depends_on:
       - loki
+      - loki-audit
       - socket-proxy
     restart: unless-stopped
 
@@ -283,9 +336,180 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  ##########################################################
+  # Audit lane (docs/audit.md). Alloy routes audit records here
+  # instead of to the ops Loki: a separate store with its own
+  # retention, readers (grafana-audit behind its guard, for the
+  # gateway's `audit` group) and integrity checks (audit-verifier).
+  # Only alloy writes to loki-audit; readers go through
+  # loki-audit-read, which allows reads and nothing else.
+  ##########################################################
+  loki-audit:
+    <<: *hardened
+    image: docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc
+    logging: *default-logging
+    read_only: true
+    tmpfs:
+      - /tmp
+    command:
+      - -config.file=/etc/loki/loki.yaml
+      - -config.expand-env=true
+    environment:
+      AUDIT_RETENTION: ${AUDIT_RETENTION:-8760h}
+    volumes:
+      - ../loki/loki-audit.yaml:/etc/loki/loki.yaml:ro
+      - loki-audit-data:/loki
+    networks:
+      audit:
+    restart: unless-stopped
+
+  # The readers' only way into loki-audit: GET/HEAD on Loki's read API,
+  # 403 for everything else (push, delete, flush, admin endpoints).
+  # Config: nginx/loki-audit-read.conf.template.
+  loki-audit-read:
+    <<: *hardened
+    image: docker.io/nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+    logging: *default-logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+      - /etc/nginx/conf.d:size=1m,mode=1777
+    volumes:
+      - ../nginx/loki-audit-read.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      audit:
+      audit-read:
+    depends_on:
+      - loki-audit
+    restart: unless-stopped
+
+  grafana-audit:
+    <<: *hardened
+    image: docker.io/grafana/grafana-oss:13.0.2@sha256:5dad0df181cb644a14e13617b913b261a54f7d4fd4510721dba420929f35bea2
+    logging: *default-logging
+    environment:
+      # No local admin, no password login: everything is provisioned from
+      # files, and readers only ever arrive through the gateway.
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      # Airgap: no phone-home, no update checks, no news feed.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # Served under /audit/ behind the edge gateway, which admits only
+      # its `audit` group (edge-plane).
+      GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/audit/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Loopback only: grafana-audit-guard owns :3000 in this network
+      # namespace and lets nothing through without the gateway's secret.
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3001"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: "X-Auth-User"
+      GF_AUTH_PROXY_HEADER_PROPERTY: "username"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: 127.0.0.1
+      # Readers only: Viewer, with Explore for their own queries; they
+      # cannot save anything.
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
+      # No copies of trail data or of reviewers' searches outside
+      # loki-audit and its retention.
+      GF_SNAPSHOTS_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_QUERY_HISTORY_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/audit-trail.json
+    volumes:
+      - ../grafana-audit/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana-audit/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-audit-data:/var/lib/grafana
+    networks:
+      audit-read:
+      edge-net:
+        aliases: [grafana-audit]
+    depends_on:
+      - loki-audit-read
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # grafana-audit-guard — the only listener on :3000 in grafana-audit's
+  # network namespace, so it answers for the `grafana-audit` alias on
+  # edge-net. Fail-closed: 403 unless X-Edge-Secret equals
+  # AUDIT_EDGE_SECRET, the value only the edge gateway sends; no access
+  # log (the gateway's, in the audit lane, records every read).
+  # Config: nginx/grafana-audit-guard.conf.template.
+  grafana-audit-guard:
+    <<: *hardened
+    image: docker.io/nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+    logging: *default-logging
+    network_mode: "service:grafana-audit"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+      - /etc/nginx/conf.d:size=1m,mode=1777
+    environment:
+      EDGE_SECRET: ${AUDIT_EDGE_SECRET:?AUDIT_EDGE_SECRET must be set in .env (edge-plane's make secret)}
+      EDGE_SECRET_REQUIRED: "1"
+    volumes:
+      - ../nginx/grafana-audit-guard.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ../scripts/edge_secret_check.sh:/docker-entrypoint.d/05-edge-secret-check.sh:ro
+    depends_on:
+      - grafana-audit
+    restart: unless-stopped
+
+  # Re-checks the hash chains in loki-audit and publishes the result as
+  # metrics (:9105) for Prometheus. The Makefile's audit-verify,
+  # audit-export and audit-anchor run one-shot commands of the same
+  # service. Stdlib Python, mounted read-only; nothing is installed.
+  audit-verifier:
+    <<: *hardened
+    image: docker.io/library/python:3.12.16-alpine3.24@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    logging: *default-logging
+    # The image's `nobody`; audit-verifier-state is chowned to it by
+    # `make volumes`.
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    entrypoint: ["python", "/app/verifier.py"]
+    command: ["serve"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      AUDIT_LOKI_URL: http://loki-audit-read:3100
+      AUDIT_STATE_DIR: /state
+      AUDIT_VERIFY_INTERVAL: ${AUDIT_VERIFY_INTERVAL:-300}
+      AUDIT_SILENCE_S: ${AUDIT_SILENCE_S:-300}
+      AUDIT_RETENTION: ${AUDIT_RETENTION:-8760h}
+    volumes:
+      - ../audit:/app:ro
+      - audit-verifier-state:/state
+    networks:
+      default:
+      audit-read:
+    depends_on:
+      - loki-audit-read
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9105/metrics', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
 ##########################################################
-# Volumes — external; created by `make volumes`, destroyed
-# only by the interactive `make nuke` (data-plane pattern).
+# Volumes — external; created by `make volumes`. The ops
+# volumes are destroyed only by the interactive `make nuke`
+# (data-plane pattern); the audit volumes by no target at all —
+# audit lines leave only through loki-audit's retention.
 ##########################################################
 volumes:
   prometheus-data:
@@ -295,4 +519,10 @@ volumes:
   grafana-data:
     external: true
   alloy-data:
+    external: true
+  loki-audit-data:
+    external: true
+  grafana-audit-data:
+    external: true
+  audit-verifier-state:
     external: true

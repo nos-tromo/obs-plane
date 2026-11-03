@@ -1,0 +1,1 @@
+level=info ts=2026-11-03T07:00:03Z caller=metrics.go:237 component=frontend org_id=fake latency=fast query="{lane=\"audit\"} |= \"jane.doe\"" status=200

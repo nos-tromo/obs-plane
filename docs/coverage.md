@@ -25,7 +25,10 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   redacted before storage (`?entity_text=<redacted>`; parameter names are
   kept), so search terms and access tokens in request lines, URLs and
   referrers never reach Loki — including from sources whose own log format
-  cannot be changed (nginx's error log, upstream images).
+  cannot be changed (nginx's error log, upstream images). Audit records —
+  the services' hash-chained audit events, the gateway's access log and
+  Open WebUI's audit log — are the exception: they go, unredacted, to the
+  audit trail's own store and never to this Loki ([audit.md](audit.md)).
 - **NVIDIA GPUs** (GPU hosts, `gpu` compose profile) — dcgm-exporter
   device telemetry: utilization, framebuffer memory, temperature, power,
   SM clock, memory-bandwidth utilization, ECC error counters. Rendered on
@@ -39,6 +42,10 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   other target and rendered on the `obs-plane.json` dashboard: TSDB size,
   ingestion rate, scrape duration by job, Loki ingest bytes/chunk-flush
   rate, Alloy shipped-bytes rate.
+- **The audit trail's integrity** — `audit-verifier:9105`: events checked,
+  chain problems by kind, open chains, unchained lines per project, last
+  successful run. Counts only, never records; the `audit` rule group alerts
+  on them ([audit.md](audit.md#metrics-and-alerts)).
 - **vLLM backends** (`chat`, `embed`, `rerank`, `asr`) — native
   `vllm:...` Prometheus metrics (token throughput, latency, KV-cache
   usage) scraped by service name on `inference-net`. vllm-service
@@ -85,6 +92,15 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   occupancy, PCIe/NVLink throughput) — traded away by keeping
   `dcgm-exporter` fully hardened. See
   [hardening.md](hardening.md#dcgm-exporter-is-not-a-second-exception).
+- **The audit store's own internals** — `loki-audit` is not scraped (it
+  sits on the internal `audit` network, which prometheus does not join),
+  and the logs of `loki-audit`, `loki-audit-read`, `grafana-audit` and
+  `grafana-audit-guard` are collected by neither lane, since they can name
+  what reviewers searched for. They stay on the host
+  (`make logs S=loki-audit`); `make health` checks readiness (the store
+  through `loki-audit-read`, and that the guard refuses requests without the
+  edge secret), and the verifier's alerts fire when the store stops
+  answering.
 
 ## When a target is down by design
 
