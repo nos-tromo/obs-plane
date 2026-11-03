@@ -17,9 +17,10 @@ All of it is set on the `grafana` service in `docker/compose.yaml`. This
 revises the v1 decision (below) that treated the tunnel as the only
 path — that path remains, as the admin/fallback route.
 
-`grafana` joins `edge-net` for exactly this reason; it is obs-plane's only
-service on that seam. The gateway side of the contract — the `/grafana/*`
-route and the header injection — is documented in
+`grafana` joins `edge-net` for exactly this reason; the audit-trail viewer
+`grafana-audit` (below) is obs-plane's only other service on that seam. The
+gateway side of the contract — the `/grafana/*` route and the header
+injection — is documented in
 [edge-plane's README](../../edge-plane/README.md).
 
 **Not every authenticated user reaches Grafana.** `/grafana` is the one
@@ -33,6 +34,26 @@ It is authorization, not authentication, and obs-plane sees only the
 the role an admin lands on *inside* Grafana, not who is let through the
 door.
 
+## The audit-trail viewer (`grafana-audit`)
+
+A second Grafana, at `https://${EDGE_HOST}/audit/`, reads the audit trail
+and nothing else ([audit.md](audit.md#access)). It is the same construct as
+`grafana` above — `edge-net` alias `grafana-audit`, served under a sub-path,
+signed in from `X-Auth-User` — with these differences, all set on the
+`grafana-audit` service in `docker/compose.yaml`:
+
+- edge-plane admits only its `audit` group to `/audit`; `admins` is not
+  enough.
+- Everyone signs in as **Viewer** (no `GRAFANA_VIEWER_ROLE` knob) with
+  Explore allowed (`GF_USERS_VIEWERS_CAN_EDIT`): readers can search but save
+  nothing. Snapshots, public dashboards and server-side query history are
+  off.
+- Its only datasource is `loki-audit`, reachable only on obs-plane's
+  internal `audit` network. The ops `grafana` is not on that network, so no
+  datasource added there could reach the trail.
+- Its local `admin` account takes `AUDIT_GRAFANA_ADMIN_PASSWORD`, and the dev
+  overlay publishes no port for it: the trail is read through the gateway.
+
 ## Trusted-zone note
 
 `X-Auth-User` is only trustworthy because
@@ -43,9 +64,11 @@ to `edge-net` could reach `grafana:3000` directly and send an arbitrary
 `X-Auth-User` value, auto-provisioning or impersonating a user. This is
 the same trust posture already accepted by the app frontends
 (chorus/docint/Nextext) that consume the identical header contract; it
-is not a new exposure introduced by this change. Re-evaluate this
+is not a new exposure introduced by this change. `grafana-audit` takes the
+header the same way, so the same holds for the audit trail: an `edge-net`
+member could read it by sending any account name. Re-evaluate this
 acceptance if edge-net membership ever grows beyond the gateway, the four
-app frontends, Open WebUI, and Grafana.
+app frontends, Open WebUI, Grafana and the audit-trail viewer.
 
 ## Without the gateway: dev overlay and SSH tunnel
 

@@ -2,15 +2,17 @@
 
 Observability plane for the nos-tromo federation: Prometheus + Grafana +
 Loki + Grafana Alloy + socket-proxy + node-exporter + cAdvisor +
-blackbox-exporter + dcgm-exporter (GPU hosts), all pulled and
-digest-pinned, bundleable for airgap. Built in the `data-plane` mold —
-it owns its own external volumes, and joins all three shared external
-networks: `inference-net` and `data-net` read-only as a scraper,
-`edge-net` so the edge gateway can reach Grafana.
+blackbox-exporter + dcgm-exporter (GPU hosts), plus the federation's
+data-protection audit trail (`loki-audit`, `grafana-audit`,
+`audit-verifier`), all pulled and digest-pinned, bundleable for airgap.
+Built in the `data-plane` mold — it owns its own external volumes, and
+joins all three shared external networks: `inference-net` and `data-net`
+read-only as a scraper, `edge-net` so the edge gateway can reach Grafana
+and the audit-trail viewer.
 
 ## What lives here
 
-Nine services, all lightweight next to the inference stack.
+Twelve services, all lightweight next to the inference stack.
 
 | Service | Role | Network membership |
 |---|---|---|
@@ -18,28 +20,34 @@ Nine services, all lightweight next to the inference stack.
 | `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `socket-proxy` | Restricted read-only gateway to the Docker API for Alloy (only `GET /containers`, `/networks`, `/events`, `/_ping` enabled; every mutating/sensitive endpoint denied) | project-internal only; the sole Alloy-path holder of `/var/run/docker.sock` (ro) |
-| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, with query-string values redacted on the way (`?q=<redacted>`), log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal only; reaches the Docker API via `socket-proxy:2375` — no socket mount |
+| `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, with query-string values redacted on the way (`?q=<redacted>`); audit records go unredacted to `loki-audit` instead. Log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal + `audit`; reaches the Docker API via `socket-proxy:2375` — no socket mount |
 | `node-exporter` | Host metrics (CPU, memory, disk, network, filesystem fill) | internal (default) network |
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
 | `dcgm-exporter` | NVIDIA GPU metrics (utilization, VRAM, temperature, power, clocks, ECC); runs only when the `gpu` compose profile is enabled (`COMPOSE_PROFILES=gpu` in `.env`, GPU hosts with the NVIDIA container toolkit) | internal (default) network |
+| `loki-audit` | The audit trail's store: audit records only, retention `${AUDIT_RETENTION:-8760h}`, no deletion API | `audit` only |
+| `grafana-audit` | The audit-trail viewer: one datasource (`loki-audit`), one dashboard; readers sign in as Viewers | `audit` + `edge-net`, alias `grafana-audit` (served at `/audit/` behind the edge gateway) |
+| `audit-verifier` | Re-checks the trail's hash chains every `${AUDIT_VERIFY_INTERVAL:-300}` s and exports the result as metrics; runs the `make audit-*` one-shots | project-internal + `audit` |
 
 `prometheus` and `blackbox-exporter` join `inference-net` and `data-net`
-(to reach scrape/probe targets by alias); `grafana` joins `edge-net` —
-the rest stay on the project-internal default network. On the first two
-seams obs-plane is a read-only consumer that claims no alias. On
-`edge-net` it publishes exactly one: `grafana`, which edge-plane's Caddy
-proxies `/grafana/*` to
-([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)).
+(to reach scrape/probe targets by alias); `grafana` and `grafana-audit`
+join `edge-net` — the rest stay on the project-internal networks. On the
+first two seams obs-plane is a read-only consumer that claims no alias. On
+`edge-net` it publishes two: `grafana` and `grafana-audit`, which
+edge-plane's Caddy proxies `/grafana/*` and `/audit/*` to
+([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)). The audit store
+sits on a second, internal project network, `audit`, that only `alloy`,
+`grafana-audit` and `audit-verifier` join — the ops `grafana` cannot reach
+it.
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD at minimum
+$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD and AUDIT_GRAFANA_ADMIN_PASSWORD at minimum
 
 make network                  # create the external inference-net + data-net + edge-net (idempotent)
-make volumes                  # create the external obs volumes (prometheus-data, loki-data, grafana-data, alloy-data; idempotent)
+make volumes                  # create the external obs + audit volumes (idempotent)
 make up-dev                   # start, publishing Grafana on the host
 ```
 
@@ -64,7 +72,8 @@ scrape target reads down (expected; `make health` excludes it).
 - **NVIDIA GPUs** — dcgm-exporter, GPU hosts only (`gpu` profile).
 - **Black-box health** — router liveliness, `neo4j:7474`,
   `qdrant:6333/healthz`.
-- **Logs of every container on the host** — Alloy discovery → Loki.
+- **Logs of every container on the host** — Alloy discovery → Loki;
+  audit records go to the audit trail instead (below).
 - **obs-plane itself** — Prometheus, Loki and Alloy are scraped too.
 
 Not covered: Neo4j internal metrics (Enterprise-only; the federation runs
@@ -83,6 +92,25 @@ edge-plane's `authelia/configuration.yml`, not here. See
 [grafana-access.md](docs/grafana-access.md) for the trusted-header
 contract and the dev-overlay / SSH-tunnel fallbacks.
 
+## Audit trail
+
+Audit records — the hash-chained events of the federation's services, the
+gateway's access log and Open WebUI's audit log — bypass the operational
+Loki: Alloy routes them, unredacted, to `loki-audit`, which keeps them for
+`AUDIT_RETENTION` (default one year) and offers no way to delete lines.
+`grafana-audit` shows them at `https://${EDGE_HOST}/audit/` to the
+gateway's `audit` group only; ops admins see the verifier's metrics and
+alerts, never the records.
+
+```bash
+make audit-verify FROM=2026-01-01 TO=2026-02-01   # check the hash chains of a range
+make audit-export FROM=… TO=… [SERVICE=…] [REF=…] # export as JSONL for a review
+make audit-anchor DAY=2026-01-01                  # the day's anchor, to sign and keep offline
+```
+
+Routing, integrity checks, signing and limits:
+[audit.md](docs/audit.md).
+
 ## Alerting
 
 Alert rules are committed Prometheus/Loki rule files
@@ -92,16 +120,17 @@ view — Grafana provisions datasources and dashboards, never alert rules.
 There is **no notification channel by design** — airgapped production has
 no outbound delivery path.
 
-Nine rules in four groups: `federation` (`ProbeDown`,
+Twelve rules in five groups: `federation` (`ProbeDown`,
 `ScrapeTargetDown`, `ContainerRestartLooping`), `host`
 (`HostDiskAlmostFull`, `HostMemoryPressure`), `gpu`
 (`GPUHighTemperature`, `GPUECCErrors`, `GPUMemoryAlmostFull` — GPU hosts
-only), and Loki's `logs` (`ErrorLogSpike`).
+only), `audit` (`AuditChainProblem`, `AuditVerifierStale`,
+`AuditVerifierDown`), and Loki's `logs` (`ErrorLogSpike`).
 
 ## Container hardening
 
-Eight of the nine services run with `no-new-privileges` and
-`cap_drop: ALL`. The ninth, **`cadvisor`, takes neither and runs
+Eleven of the twelve services run with `no-new-privileges` and
+`cap_drop: ALL`. The twelfth, **`cadvisor`, takes neither and runs
 `privileged: true`** — an accepted residual finding, traded for
 federation-wide container metrics. Baseline and both trade-offs:
 [hardening.md](docs/hardening.md#residual-finding-cadvisor-runs-privileged);
@@ -116,7 +145,7 @@ make health                   # readiness + all scrape targets up
 make logs S=prometheus        # tail logs for one service (omit S= to tail all)
 make down                     # stop, volumes preserved
 make bundle                   # airgap tarball from the latest release tag
-make nuke                     # interactive: DESTROY all volumes
+make nuke                     # interactive: DESTROY the ops volumes (not the audit trail's)
 ```
 
 `make help` lists the operator targets (`stop` is an unlisted bare
@@ -131,7 +160,7 @@ checks and the `OBS_PLANE_VERSION_OVERRIDE` bundle override are spelled out in
 [coverage.md](docs/coverage.md) (every scrape/probe target and the
 deliberate gaps), [grafana-access.md](docs/grafana-access.md) (access
 paths, trusted-header contract), [hardening.md](docs/hardening.md)
-(privilege posture). Design history — the v1 design doc and its build
+(privilege posture), [audit.md](docs/audit.md) (the audit trail). Design history — the v1 design doc and its build
 plan — lives alongside them as dated files, recording decisions as they
 were made rather than tracking the current state.
 

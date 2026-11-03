@@ -1,0 +1,1 @@
+level=info ts=2026-11-03T07:00:05Z caller=metrics.go:237 component=frontend org_id=fake query="{compose_project=\"docint\"}" status=200

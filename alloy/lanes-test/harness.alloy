@@ -1,0 +1,21 @@
+// Appended to alloy/config.alloy by scripts/check_alloy_lanes.sh, which also
+// points the two loki.write receivers at the echo components below. Each
+// fixture file stands in for one container, with the labels Docker discovery
+// would give it.
+loki.source.file "fixtures" {
+  targets = [
+    {"__path__" = "/h/lines/docint.txt", "container" = "docint-docint-backend-1", "compose_project" = "docint", "compose_service" = "docint-backend"},
+    {"__path__" = "/h/lines/caddy.txt", "container" = "edge-plane-caddy-1", "compose_project" = "edge-plane", "compose_service" = "caddy"},
+    {"__path__" = "/h/lines/owui.txt", "container" = "open-webui-service-open-webui-1", "compose_project" = "open-webui-service", "compose_service" = "open-webui"},
+    {"__path__" = "/h/lines/loki-audit.txt", "container" = "obs-plane-loki-audit-1", "compose_project" = "obs-plane", "compose_service" = "loki-audit"},
+    {"__path__" = "/h/lines/grafana-audit.txt", "container" = "obs-plane-grafana-audit-1", "compose_project" = "obs-plane", "compose_service" = "grafana-audit"},
+    {"__path__" = "/h/lines/loki.txt", "container" = "obs-plane-loki-1", "compose_project" = "obs-plane", "compose_service" = "loki"},
+    {"__path__" = "/h/lines/other.txt", "container" = "adhoc-1"},
+  ]
+  forward_to    = [loki.process.lane.receiver]
+  tail_from_end = false
+}
+
+loki.echo "audit" { }
+
+loki.echo "ops" { }

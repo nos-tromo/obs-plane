@@ -1,0 +1,207 @@
+# Audit trail
+
+obs-plane keeps a data-protection audit trail apart from the operational
+logs: records of who collected, changed, queried, disclosed, combined or
+deleted which data, when and with what stated purpose. It has its own store
+(`loki-audit`), its own reader (`grafana-audit`), its own retention, and a
+verifier that checks the records have not been altered. The design is deploy
+[ADR 0003](../../deploy/docs/decisions/0003-federation-audit-trail.md); the
+day-to-day runbook is deploy's
+[runbooks/audit.md](../../deploy/docs/runbooks/audit.md). This page is the
+reference for the store itself.
+
+## What feeds it
+
+| Producer | Lines | Integrity |
+|---|---|---|
+| Federation services using the shared audit library (`audit_event.py`, canonical in `nos-tromo/.github`, vendored here as `audit/audit_event.py`) | One JSON line per event, marked `"stream":"audit"`: action, operation, outcome, actor, stated purpose, references and bounded search criteria, never content | Hash chain per process, re-checked by the verifier |
+| The edge gateway's access log (edge-plane's Caddy, `"logger":"http.log.access…"`) | One line per request: account (`user`), request id (`uuid`), path without its query string, status | Daily anchors only |
+| Open WebUI's audit log (`"auditable": true`) | One record per authenticated API request, without request or response bodies | Daily anchors only |
+
+Each chain belongs to one process. Its events carry `seq` and the hash of the
+previous event, so a removed, inserted, reordered or altered line breaks the
+chain. A `start` event opens it, a `heartbeat` follows every 60 s, and a
+`shutdown` event closes it cleanly.
+
+## How lines get there
+
+Alloy (`alloy/config.alloy`) reads every container's output once and decides
+per line, in one place (`loki.process "lane"`):
+
+- **Audit records** — lines matching any of the three markers above — get
+  the label `lane="audit"` and go to `loki-audit`, **unredacted**: the search
+  criteria in them are part of the record.
+- **Everything else** goes to the operational Loki, with query-string values
+  redacted as before.
+- **The audit store's own logs** (`loki-audit`, `grafana-audit`) go to
+  neither: their query logs name what reviewers searched for. They stay in
+  the container logs on the host (`make logs S=loki-audit`).
+
+So the gateway's access log is no longer in the operational Loki; the
+gateway's other logs are. `scripts/check_alloy_lanes.sh` runs the real config
+on fixture lines (`alloy/lanes-test/`) and checks where each one lands; CI
+runs it on every change.
+
+## Retention
+
+`AUDIT_RETENTION` in `.env` (a Loki duration, default `8760h`, one year) is
+how long the store keeps lines. Set it to the period the applicable retention
+rules prescribe before the trail holds data that must be kept. Loki's
+compactor deletes older lines on its own; lowering the value later deletes
+older lines for good.
+
+Nothing else deletes lines. The store's deletion API is off
+(`deletion_mode: disabled` in `loki/loki-audit.yaml`; the endpoint answers
+403), and `make nuke` leaves the three audit volumes (`loki-audit-data`,
+`grafana-audit-data`, `audit-verifier-state`) alone. Removing them takes a
+deliberate `docker volume rm`.
+
+## Access
+
+- **Readers** reach `grafana-audit` at `https://<EDGE_HOST>/audit/`. The
+  gateway admits only members of its `audit` group; `admins` does not grant
+  it (edge-plane `docs/identity-contract.md`). Grafana signs them in from the
+  gateway's `X-Auth-User` header as **Viewers**: they can search with the
+  "Audit trail" dashboard and with Explore, and can save nothing. Snapshots,
+  public dashboards and the server-side query history are off, so neither
+  trail data nor reviewers' searches are kept in Grafana beyond the store's
+  retention.
+- **Reading is recorded.** Every request to `/audit/` is in the gateway's
+  access log, which is in the trail.
+- **Operators** see the trail's health — the verifier's metrics and alerts,
+  which carry counts and problem kinds only — never its lines. The ops
+  `grafana` has no datasource for the store and cannot reach it: `loki-audit`
+  sits on obs-plane's internal `audit` network, which only `alloy`,
+  `grafana-audit` and `audit-verifier` join.
+- **The local `admin` account** (`AUDIT_GRAFANA_ADMIN_PASSWORD`) uses the
+  login form behind the same `/audit/` route. `grafana-audit` has no port in
+  the dev overlay.
+
+`grafana-audit` trusts `X-Auth-User` the way the ops `grafana` does, so the
+[trusted-zone note](grafana-access.md#trusted-zone-note) applies to it too.
+
+The dashboard's filters (service, user, action) are plain text matches on the
+line: `docint` matches both the service's own events and gateway lines for
+`/docint/`. Explore takes any LogQL query against the same store.
+
+## Integrity
+
+### The verifier
+
+`audit-verifier` runs `audit/verifier.py` (stdlib Python in the pinned
+`python` image, read-only, as `nobody`). Every `AUDIT_VERIFY_INTERVAL`
+seconds (default 300) it reads the chained lines that arrived since its last
+run and checks them with the library's own `verify_chain`, continuing from
+the chain heads it keeps in `audit-verifier-state`. On its first start it
+reads the whole retention window. Each run also re-reads the 15 minutes
+before its cursor, skipping events it has already checked, so lines that
+reach the store late are still checked.
+
+It also binds every event to where it came from: the event's `service` must
+equal the compose project of the container Docker reported, and a chain must
+stay in one container. An emitter's `service` is therefore its compose
+project name (`chorus`, `docint`, `nextext`, `translator`).
+
+A chain that has written nothing for `AUDIT_SILENCE_S` seconds (default 300,
+five heartbeats) without a `shutdown`, while other chains went on, is
+reported once as `unterminated` and then counted as closed. A crashed process
+therefore yields one finding; an outage of the collector or the store, which
+silences every chain at once, yields none.
+
+| Kind | Meaning |
+|---|---|
+| `bad_hash` | A line's content does not match its hash: altered |
+| `broken_link` | A line does not name the previous line's hash |
+| `seq_gap` | Sequence numbers jump: lines missing |
+| `seq_repeat` | A sequence number appears twice with different content |
+| `no_start` | A chain appears mid-way without its start |
+| `schema` | A marked line is not a well-formed event |
+| `source_mismatch` | An event names another service than its container's project, or a chain moves between containers |
+| `unterminated` | A chain stopped without a shutdown event |
+
+Problems go to the verifier's log as kind, service, instance and sequence
+number only, never event content.
+
+### Metrics and alerts
+
+The verifier serves Prometheus metrics on `audit-verifier:9105`:
+`audit_events_verified_total`, `audit_chain_problems_total{kind}`,
+`audit_chains_open`, `audit_unchained_lines_total{project}`,
+`audit_verifier_last_success_timestamp_seconds`,
+`audit_verifier_errors_total` and `audit_verifier_interval_seconds`. Its
+counters are kept in its state, so they survive restarts.
+
+Three rules in `prometheus/rules.yml` (group `audit`) fire on them, without a
+notification channel like every other rule here:
+
+| Alert | Fires when |
+|---|---|
+| `AuditChainProblem` | A problem of any kind was found in the last 15 minutes |
+| `AuditVerifierStale` | No run completed for more than three intervals |
+| `AuditVerifierDown` | Prometheus cannot reach the verifier for 5 minutes |
+
+### Anchors
+
+The chains reveal altered and removed lines. Lines added after the fact, and
+any change to the unchained producers, are revealed by the daily anchor:
+`make audit-anchor DAY=<YYYY-MM-DD>` writes `audit-exports/anchor-<day>.json`
+with the number of lines per compose project, the SHA-256 over all of that
+day's lines in a fixed order, and every chain's last position at the end of
+the day. The digest is exactly the SHA-256 of that day's full export, so a
+later `make audit-export FROM=<day> TO=<next day>` can be compared with it.
+
+Sign each anchor with a key that is kept off the host and move both files to
+offline storage the same day. A day can be anchored once it has been over
+for 15 minutes.
+
+## Commands
+
+```bash
+make audit-verify FROM=2026-01-01 TO=2026-02-01      # check the chains of a range; exits 1 on any problem
+make audit-export FROM=2026-01-01T00:00:00Z TO=2026-01-02T00:00:00Z
+make audit-export FROM=… TO=… SERVICE=docint         # one compose project (edge-plane: the gateway)
+make audit-export FROM=… TO=… REF=<text>             # only lines containing <text>
+make audit-anchor DAY=2026-01-01                     # the anchor of one UTC day
+```
+
+Times are ISO 8601; a date means midnight UTC, and `TO` is exclusive. The
+commands run as one-off containers of the `audit-verifier` service and write
+to `audit-exports/` (git-ignored), as the invoking user.
+
+An export is JSONL, one record per stored line, ordered by time:
+`{"labels": {...}, "line": "<the line as stored>", "ts": "<RFC 3339, ns>"}`,
+with a `.sha256` next to it in `sha256sum` format. The `REF` text itself does
+not appear in the file name, only a short hash of it. An export contains
+personal data: hand it only to whoever is entitled to it.
+
+**Signing.** With `AUDIT_SIGNING_KEY` set to the path of an SSH private key
+(set it only while signing), `audit-export` and `audit-anchor` write
+`<file>.sig` next to the file (`ssh-keygen -Y sign -n audit`). Without it they
+print the command to sign elsewhere. To check a file:
+
+```bash
+ssh-keygen -Y verify -f allowed_signers -I <signer identity> -n audit \
+  -s anchor-2026-01-01.json.sig < anchor-2026-01-01.json
+```
+
+On a host with `userns-remap`, `audit-exports/` must be writable by the
+remapped user ID (deploy `docs/runbooks/userns-remap.md`).
+
+## Limits
+
+- **Whoever controls the host or the store** can still change or remove
+  lines and recompute their chains, up to the last anchor that is signed and
+  kept off the host. Anchors make such changes detectable afterwards; they do
+  not prevent them. Take them every day.
+- **The gateway and Open WebUI are not chained.** For their lines the anchors
+  are the only integrity control.
+- **Late lines.** Loki answers queries about the last three hours from
+  memory and older ones from flushed chunks. A line that reaches the store
+  more than three hours after it was written (after a long collector outage)
+  becomes visible about half an hour later, once flushed; the running
+  verifier, which re-reads only 15 minutes back, reports the chain as having
+  a gap. `make audit-verify` over that window afterwards shows whether the
+  lines are there.
+- **The last chain standing.** A chain is reported `unterminated` only once
+  another chain has moved on; if the only emitting process dies, that waits
+  until something else writes.

@@ -1,6 +1,6 @@
 # Container hardening and residual findings
 
-How obs-plane's nine containers are constrained, and the two privilege
+How obs-plane's twelve containers are constrained, and the two privilege
 trade-offs that were made deliberately rather than overlooked. The
 governing decision is deploy ADR 0001,
 [0001-container-engine-docker.md](../../deploy/docs/decisions/0001-container-engine-docker.md),
@@ -8,15 +8,18 @@ which also defines the reversal triggers referenced below.
 
 ## Baseline
 
-Eight of the nine services take the `x-hardened` anchor —
+Eleven of the twelve services take the `x-hardened` anchor —
 `no-new-privileges` and `cap_drop: ALL`. `cadvisor` is the exception and
-takes neither (see below). Four of the eight — `socket-proxy`,
-`node-exporter`, `blackbox-exporter` and `dcgm-exporter` — additionally
-run read-only. Alloy no longer mounts the Docker socket — it reaches the API
-through `socket-proxy`, which enables only the read-only endpoints Alloy
-needs and rejects everything else (403), and it runs as its internal
-uid 473 (`make volumes` chowns `alloy-data` accordingly; on hosts with an
-existing volume re-run `make volumes` once).
+takes neither (see below). Six of the eleven — `socket-proxy`,
+`node-exporter`, `blackbox-exporter`, `dcgm-exporter`, `loki-audit` and
+`audit-verifier` — additionally run read-only. Alloy no longer mounts the
+Docker socket — it reaches the API through `socket-proxy`, which enables
+only the read-only endpoints Alloy needs and rejects everything else (403),
+and it runs as its internal uid 473 (`make volumes` chowns `alloy-data`
+accordingly; on hosts with an existing volume re-run `make volumes` once).
+`audit-verifier` runs as the python image's `nobody` (65534), with its code
+mounted read-only and only `audit-verifier-state` writable (`make volumes`
+chowns it).
 
 The shared constraints are applied through the `x-hardened` anchor in
 `docker/compose.yaml`; the socket-proxy allowlist (only `GET /containers`,

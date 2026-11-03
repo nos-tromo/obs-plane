@@ -49,10 +49,13 @@ jobs:
             docker.io/prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893 \
             check config /etc/prometheus/prometheus.yml
       - name: loki verify-config
+        # loki.yaml (ops) and loki-audit.yaml (the audit store) run on the same image.
         run: |
-          docker run --rm -v "$PWD/loki/loki.yaml:/etc/loki/loki.yaml:ro" \
-            docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc \
-            -config.file=/etc/loki/loki.yaml -config.expand-env=true -verify-config
+          for config in loki loki-audit; do
+            docker run --rm -v "$PWD/loki/$config.yaml:/etc/loki/loki.yaml:ro" \
+              docker.io/grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc \
+              -config.file=/etc/loki/loki.yaml -config.expand-env=true -verify-config
+          done
       - name: loki rules check
         # -verify-config only validates loki.yaml's own schema — it does not
         # load loki/rules/*.yml, so a broken LogQL expr in an alert rule
@@ -104,6 +107,11 @@ jobs:
           docker run --rm -v "$PWD/alloy/config.alloy:/cfg/config.alloy:ro" \
             docker.io/grafana/alloy:v1.18.0@sha256:491b0578c04983fd54fe99b587b6fab4404dc46d0dc16677bd6b00cc1140b308 \
             fmt /cfg/config.alloy > /dev/null
+      - name: alloy lane routing
+        # Runs config.alloy on fixture lines and checks that audit records
+        # reach only the audit lane, unredacted, and everything else only
+        # the ops lane, redacted (docs/audit.md).
+        run: ./scripts/check_alloy_lanes.sh
       - name: blackbox config check
         run: |
           docker run --rm -v "$PWD/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro" --entrypoint /bin/blackbox_exporter \
@@ -111,7 +119,7 @@ jobs:
             --config.file=/etc/blackbox/blackbox.yml --config.check
       - name: dashboards are valid JSON
         run: |
-          for f in grafana/dashboards/*.json; do python3 -m json.tool "$f" > /dev/null; done
+          for f in grafana/dashboards/*.json grafana-audit/dashboards/*.json; do python3 -m json.tool "$f" > /dev/null; done
       - name: dcgm counters cover rules + dashboard
         # dcgm/counters.csv has no upstream validator (a typo'd field only
         # surfaces at runtime on a GPU host), so at least assert every
@@ -124,3 +132,14 @@ jobs:
               || { echo "field $f referenced but not collected in dcgm/counters.csv"; exit 1; }
           done
           echo "all referenced DCGM fields collected: $fields"
+
+  audit-tests:
+    # The audit verifier (audit/verifier.py) against an in-memory Loki: no
+    # Docker, no network. Stdlib code, so only pytest is installed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: pytest
+        run: |
+          pipx install uv
+          uv run --no-project --python 3.12 --with pytest python -m pytest audit/tests -q

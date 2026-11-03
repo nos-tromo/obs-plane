@@ -2,6 +2,10 @@
 // labeled by compose project + service. The Docker API is reached through
 // the restricted read-only socket-proxy sidecar (deploy ADR 0001) — the
 // raw socket is never mounted into this container.
+//
+// Every line goes to exactly one of two lanes (docs/audit.md): audit
+// records to the audit store (loki-audit), everything else, redacted, to
+// the operational Loki. loki.process "lane" decides which, once.
 
 discovery.docker "containers" {
   host = "tcp://socket-proxy:2375"
@@ -28,7 +32,47 @@ discovery.relabel "containers" {
 loki.source.docker "containers" {
   host       = "tcp://socket-proxy:2375"
   targets    = discovery.relabel.containers.output
-  forward_to = [loki.process.redact.receiver]
+  forward_to = [loki.process.lane.receiver]
+}
+
+// Mark audit records with lane="audit": hash-chained events from the shared
+// audit library ("stream":"audit"), Open WebUI's audit log ("auditable":
+// true, compact or spaced JSON) and the edge gateway's access log ("logger":
+// "http.log.access...").
+//
+// The audit store's own services go to neither lane: their query logs name
+// what reviewers searched for, so they stay on the host (`make logs`). Who
+// read the trail is recorded anyway, in the gateway's access log.
+loki.process "lane" {
+  forward_to = [loki.process.audit.receiver, loki.process.redact.receiver]
+
+  stage.match {
+    selector            = `{compose_project="obs-plane", compose_service=~"loki-audit|grafana-audit"}`
+    action              = "drop"
+    drop_counter_reason = "audit_store"
+  }
+
+  stage.match {
+    selector = `{lane!="audit"} |~ "\"stream\":\"audit\"|\"auditable\": ?true|\"logger\":\"http\\.log\\.access"`
+
+    stage.static_labels {
+      values = {
+        lane = "audit",
+      }
+    }
+  }
+}
+
+// Audit lane: only lines marked above, unredacted — search criteria are part
+// of the record here.
+loki.process "audit" {
+  forward_to = [loki.write.audit.receiver]
+
+  stage.match {
+    selector            = `{lane!="audit"}`
+    action              = "drop"
+    drop_counter_reason = "not_audit"
+  }
 }
 
 // Redact query-string values before anything is stored. Request lines, URLs
@@ -41,6 +85,13 @@ loki.source.docker "containers" {
 loki.process "redact" {
   forward_to = [loki.write.default.receiver]
 
+  // Audit records never reach the operational Loki.
+  stage.match {
+    selector            = `{lane="audit"}`
+    action              = "drop"
+    drop_counter_reason = "audit_lane"
+  }
+
   stage.replace {
     expression = `[?&][^=&\s"'#]+=([^&\s"'#]+)`
     replace    = "<redacted>"
@@ -50,5 +101,11 @@ loki.process "redact" {
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+loki.write "audit" {
+  endpoint {
+    url = "http://loki-audit:3100/loki/api/v1/push"
   }
 }

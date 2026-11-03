@@ -50,6 +50,13 @@ scrape_configs:
     static_configs:
       - targets: ["alloy:12345"]
 
+  # The audit lane's verifier (docs/audit.md): chain checks as metrics —
+  # counts and kinds only, never audit content. loki-audit itself is not
+  # scraped: it sits on the audit network, which prometheus does not join.
+  - job_name: audit-verifier
+    static_configs:
+      - targets: ["audit-verifier:9105"]
+
   # FastAPI app backends — instrumented via prometheus-fastapi-instrumentator
   # (chorus#95, docint#341, Nextext#105, translator#71 — merged). Targets
   # read down (`up == 0`) until each app deploys an image containing that

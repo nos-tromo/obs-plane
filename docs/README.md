@@ -13,6 +13,7 @@ detail that would otherwise crowd it out.
 | [coverage.md](coverage.md) | Every scrape/probe target: what is observable, what is deliberately not, and which targets are down by design |
 | [grafana-access.md](grafana-access.md) | Reaching Grafana through the edge gateway, the `X-Auth-User` trust assumption, and the dev-overlay / SSH-tunnel fallbacks |
 | [hardening.md](hardening.md) | Container hardening baseline (deploy ADR 0001) and the accepted residual findings — cAdvisor's `privileged: true`, dcgm-exporter's dropped profiling metrics |
+| [audit.md](audit.md) | The data-protection audit trail: what feeds it, how Alloy routes it, retention, who can read it, the verifier and its alerts, exports and signed daily anchors, and the limits |
 
 Design history lives alongside these files as dated `YYYY-MM-DD-*.md`
 documents (the v1 design doc and its build plan); they record decisions as
@@ -27,6 +28,8 @@ they were made and are not kept current.
   covers every access path, production and local.
 - **Reviewers auditing the privilege posture** —
   [hardening.md](hardening.md), then deploy ADR 0001.
+- **Whoever runs or reviews the audit trail** — [audit.md](audit.md), then
+  deploy's audit runbook.
 
 ## Conventions used in these docs
 
