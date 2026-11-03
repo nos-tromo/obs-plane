@@ -6,10 +6,12 @@ loopback port.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import io
 import json
 import random
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -17,7 +19,7 @@ from datetime import UTC, date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from typing import ClassVar, override
+from typing import Any, ClassVar, override
 from urllib.parse import parse_qs, urlparse
 
 import audit_event
@@ -306,6 +308,17 @@ def test_an_altered_copy_under_a_known_event_id_is_reported() -> None:
     assert "seq_repeat" in kinds(result.problems)
 
 
+def test_a_line_that_is_not_json_is_reported_once() -> None:
+    """A marked line without an event id is remembered by its store time, so a re-read does not count it again."""
+    loki = FakeLoki()
+    loki.add(T0 + 500 * NS, '{"stream":"audit","seq":', labels("docint"))
+    state = v.State()
+
+    assert kinds(v.run_once(loki, state, CFG, now_ns=T0 + 600 * NS)) == ["schema"]
+    assert v.run_once(loki, state, CFG, now_ns=T0 + 900 * NS) == []  # read again within the overlap
+    assert state.problems["schema"] == 1
+
+
 def test_events_from_another_source_stay_out_of_the_chains() -> None:
     """An event must name the compose project it was sent from (any case); others are foreign_source."""
     loki = FakeLoki()
@@ -421,100 +434,78 @@ def test_pruning_drops_the_binding_with_its_head() -> None:
     assert set(state.heads) == set(state.sources) == {live.instance}
 
 
-def test_a_forged_start_cannot_take_over_a_running_chain() -> None:
-    """A start event printed next to a chain already running when the window opens binds nothing."""
-    loki = FakeLoki()
+def forged_start(instance: str) -> str:
+    """A well-formed start event for an existing chain id, as another container could print it."""
+    start = json.loads(Chain("docint").take()[0])
+    start["instance"] = instance
+    start["hash"] = audit_event.event_hash(start)
+    return audit_event.canonical_json(start)
+
+
+def running_chain(loki: FakeLoki, at_ns: int) -> Chain:
+    """A docint chain whose start and first three queries were written before ``at_ns``; seq 4 and 5 are stored."""
     chain = Chain("docint")
     chain.query(3)
-    chain.take()  # written before the window
-    chain.query(3)
-    put(loki, chain.take(), T0 + 10 * NS, NS, labels("docint"))
-    forged = json.loads(Chain("docint").take()[0])  # a well-formed start, re-aimed at the running chain
-    forged["instance"] = chain.instance
-    forged["hash"] = audit_event.event_hash(forged)
-    loki.add(T0 + 12 * NS, audit_event.canonical_json(forged), labels("docint", "docint-frontend"))
-    entries = list(v.fetch(loki, v.CHAINED, T0, T0 + 60 * NS))
+    chain.take()
+    chain.query(2)
+    put(loki, chain.take(), at_ns, NS, labels("docint"))
+    return chain
+
+
+def test_a_start_after_other_lines_of_its_chain_binds_nothing() -> None:
+    """A start printed after lines of a chain met mid-way cannot be genuine: it is checked, never bound."""
+    loki = FakeLoki()
+    chain = running_chain(loki, T0 + 10 * NS)
+    loki.add(T0 + 10 * NS + NS // 2, forged_start(chain.instance), labels("docint", "docint-frontend"))
     state = v.State()
 
     checked, problems = v.check_window(
-        state, entries, silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS, window_start_ns=T0
+        state,
+        list(v.fetch(loki, v.CHAINED, T0, T0 + 60 * NS)),
+        silence_ns=CFG.silence_ns,
+        cap_ns=T0 + 60 * NS,
+        window_start_ns=T0,
     )
 
-    assert [(problem.kind, problem.service, problem.seq, problem.detail) for problem in problems] == [
-        (
-            "ambiguous_source",
-            "docint",
-            0,
-            "lines from docint-docint-backend-1 and docint-docint-frontend-1, none continuing the chain verifiably",
-        )
-    ]
-    assert (checked, state.sources, state.heads) == (0, {}, {})
-    again = v.check_window(state, entries, silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS, window_start_ns=T0)
-    assert again == (0, [])  # re-read lines are not reported twice
+    assert [(problem.kind, problem.seq) for problem in problems] == [("ambiguous_source", 0), ("seq_gap", 4)]
+    assert (problems[0].service, problems[0].detail) == (
+        "docint",
+        "unbound chain, lines from docint-docint-backend-1 and docint-docint-frontend-1",
+    )
+    assert (checked, state.sources, state.heads[chain.instance].seq) == (3, {}, 5)
 
 
-@pytest.mark.parametrize("forger_first", [True, False])
-def test_the_line_continuing_the_head_binds_the_chain(forger_first: bool) -> None:
-    """Of two sources, the one continuing the verified head is bound, whichever line arrives first."""
-    chain = Chain("docint")
-    chain.query(2)
-    verified = audit_event.verify_chain([json.loads(line) for line in chain.take()])
-    state = v.State(heads=dict(verified.heads))  # checked up to seq 2, not yet bound
-    chain.query(1)
-    (genuine,) = chain.take()
-    forged = json.loads(genuine)  # the next seq, printed without knowing the head's hash
-    forged.update(prev_hash="f" * 64, event_id="01a1a000-0000-7000-8000-000000000002")
-    forged["hash"] = audit_event.event_hash(forged)
+def test_a_start_for_a_chain_already_in_the_state_binds_nothing() -> None:
+    """A chain with a head in the state has been met: a start arriving in a later run is not bound."""
     loki = FakeLoki()
-    forged_at, genuine_at = (T0 + NS, T0 + 2 * NS) if forger_first else (T0 + 2 * NS, T0 + NS)
-    loki.add(forged_at, audit_event.canonical_json(forged), labels("docint", "docint-frontend"))
-    loki.add(genuine_at, genuine, labels("docint"))
+    now = T0 + 86400 * NS  # the first run reads from T0
+    chain = running_chain(loki, T0 + 10 * NS)
+    state = v.State()
+    assert v.run_once(loki, state, CFG, now_ns=now) == []
 
-    checked, problems = v.check_window(
-        state, list(v.fetch(loki, v.CHAINED, T0, T0 + 60 * NS)), silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS
-    )
-
-    assert state.sources == {chain.instance: ("docint", "docint-docint-backend-1")}
-    assert [(problem.kind, problem.seq, problem.detail) for problem in problems] == [
-        ("source_mismatch", 3, "chain of container docint-docint-backend-1, sent from docint-docint-frontend-1")
-    ]
-    assert (checked, state.heads[chain.instance].seq) == (1, 3)
-
-
-def test_two_sources_continuing_the_head_leave_the_chain_unbound() -> None:
-    """When more than one source continues the head, none is bound and the head stays put."""
-    chain = Chain("docint")
-    chain.query(2)
-    verified = audit_event.verify_chain([json.loads(line) for line in chain.take()])
-    state = v.State(heads=dict(verified.heads))
+    loki.add(now + 10 * NS, forged_start(chain.instance), labels("docint", "docint-frontend"))
     chain.query(1)
-    (genuine,) = chain.take()
-    rival = json.loads(genuine)  # printed by a container that knows the head's hash
-    rival.update(operation="search.other", event_id="01a1a000-0000-7000-8000-000000000003")
-    rival["hash"] = audit_event.event_hash(rival)
-    loki = FakeLoki()
-    loki.add(T0 + NS, genuine, labels("docint"))
-    loki.add(T0 + 2 * NS, audit_event.canonical_json(rival), labels("docint", "docint-frontend"))
+    put(loki, chain.take(), now + 11 * NS, NS, labels("docint"))
+    found = v.run_once(loki, state, CFG, now_ns=now + 60 * NS)
 
-    checked, problems = v.check_window(
-        state, list(v.fetch(loki, v.CHAINED, T0, T0 + 60 * NS)), silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS
-    )
-
-    assert [(problem.kind, problem.seq, problem.detail) for problem in problems] == [
-        (
-            "ambiguous_source",
-            3,
-            "lines from docint-docint-backend-1 and docint-docint-frontend-1, more than one continuing the chain",
-        )
+    assert state.sources == {}
+    assert [(problem.kind, problem.seq) for problem in found] == [
+        ("ambiguous_source", 6),
+        ("seq_gap", 0),
+        ("seq_gap", 6),
     ]
-    assert (checked, state.sources, state.heads[chain.instance].seq) == (0, {}, 2)
+    assert state.events_verified == 4
 
 
-def test_only_the_start_event_binds_a_new_chain() -> None:
-    """Seq 0 on the genesis hash binds only as the emitter's lifecycle start."""
+@pytest.mark.parametrize(
+    ("change", "found"),
+    [({"operation": "heartbeat"}, []), ({"prev_hash": "e" * 64}, ["broken_link"])],
+)
+def test_only_the_start_event_binds_a_new_chain(change: dict[str, str], found: list[str]) -> None:
+    """Only the emitter's lifecycle start at seq 0, naming the genesis hash, binds a chain."""
     chain = Chain("docint")
     first = json.loads(chain.take()[0])
-    first["operation"] = "heartbeat"
+    first.update(change)
     first["hash"] = audit_event.event_hash(first)
     loki = FakeLoki()
     loki.add(T0 + NS, audit_event.canonical_json(first), labels("docint"))
@@ -524,32 +515,143 @@ def test_only_the_start_event_binds_a_new_chain() -> None:
         state, list(v.fetch(loki, v.CHAINED, T0, T0 + 60 * NS)), silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS
     )
 
-    assert (checked, problems, state.sources, state.heads[chain.instance].seq) == (1, [], {}, 0)
+    assert (checked, kinds(problems), state.sources, state.heads[chain.instance].seq) == (1, found, {}, 0)
 
 
-def test_a_chain_taken_up_mid_way_is_bound_by_its_next_linked_line() -> None:
-    """A chain running when the verifier first starts is checked at once and bound one run later."""
+def test_a_chain_taken_up_mid_way_stays_unbound_and_checks_clean() -> None:
+    """A chain running when the verifier first starts is checked clean to its end and never bound."""
     loki = FakeLoki()
     now = T0 + 86400 * NS  # the first run reads from T0
-    chain = Chain("docint")
-    chain.query(3)
-    chain.take()  # written before the retention window
-    chain.query(2)
-    put(loki, chain.take(), T0 + 10 * NS, NS, labels("docint"))
+    chain = running_chain(loki, T0 + 10 * NS)
     state = v.State()
-
     assert v.run_once(loki, state, CFG, now_ns=now) == []
-    assert (state.heads[chain.instance].seq, state.sources) == (5, {})
 
-    chain.query(1)
+    chain.query(2)
+    chain.close()
     put(loki, chain.take(), now + 10 * NS, NS, labels("docint"))
     assert v.run_once(loki, state, CFG, now_ns=now + 60 * NS) == []
+
+    head = state.heads[chain.instance]
+    assert (head.seq, head.closed, state.sources, state.events_verified) == (8, True, {}, 5)
+
+
+def put_with_copies(loki: FakeLoki, lines: list[str], at_ns: int) -> None:
+    """Store each line from the backend, and one second later a copy of it from the frontend.
+
+    The copies keep their ``seq`` but not the chain's hashes, as a container
+    without the store's content would print them.
+    """
+    for index, line in enumerate(lines):
+        forged = json.loads(line)
+        forged.update(prev_hash="f" * 64, event_id=f"01a1a000-0000-7000-8000-00000000000{index}")
+        forged["hash"] = audit_event.event_hash(forged)
+        loki.add(at_ns + 2 * index * NS, line, labels("docint"))
+        loki.add(at_ns + (2 * index + 1) * NS, audit_event.canonical_json(forged), labels("docint", "docint-frontend"))
+
+
+def test_an_unbound_chain_from_two_containers_is_checked_in_full_and_reported() -> None:
+    """Nothing is set aside: every line is checked, the second container is reported once per run."""
+    loki = FakeLoki()
+    now = T0 + 86400 * NS
+    chain = running_chain(loki, T0 + 10 * NS)
+    state = v.State()
+    assert v.run_once(loki, state, CFG, now_ns=now) == []
+    chain.query(2)
+    put_with_copies(loki, chain.take(), now + 10 * NS)  # seq 6 and 7
+    expected = [("ambiguous_source", 6), ("seq_repeat", 6), ("seq_repeat", 7)]
+
+    found = v.run_once(loki, state, CFG, now_ns=now + 60 * NS)
+
+    assert [(problem.kind, problem.seq) for problem in found] == expected
+    assert found[0].detail == "unbound chain, lines from docint-docint-backend-1 and docint-docint-frontend-1"
+    assert (state.events_verified, state.sources) == (6, {})  # two lines in the first run, all four now
+    assert v.run_once(loki, state, CFG, now_ns=now + 120 * NS) == []  # read again: already reported
+    assert (state.problems["ambiguous_source"], state.problems["seq_repeat"], state.events_verified) == (1, 2, 6)
+    result = v.check_range(loki, CFG, T0, now + 120 * NS)  # make audit-verify finds them again
+    assert [(problem.kind, problem.seq) for problem in result.problems] == expected
+
+
+def test_a_second_container_is_reported_once_per_run_across_batches() -> None:
+    """The run, not the batch, decides: with one line per batch the frontend is still reported, once."""
+    loki = FakeLoki()
+    now = T0 + 86400 * NS
+    one_by_one = dataclasses.replace(CFG, page_limit=1)
+    chain = running_chain(loki, T0 + 10 * NS)
+    state = v.State()
+    assert v.run_once(loki, state, one_by_one, now_ns=now) == []
+    chain.query(2)
+    put_with_copies(loki, chain.take(), now + 10 * NS)
+
+    found = v.run_once(loki, state, one_by_one, now_ns=now + 60 * NS)
+    ranged = v.check_range(loki, one_by_one, T0, now + 120 * NS)
+
+    for problems in (found, ranged.problems):
+        assert [(problem.kind, problem.seq) for problem in problems if problem.kind == "ambiguous_source"] == [
+            ("ambiguous_source", 6)
+        ]
+        assert len(problems) > 1  # the copies also break the chain
+    assert state.events_verified == 6
+
+
+def test_a_chain_id_seen_again_after_pruning_is_a_new_chain(clock: dict[str, int]) -> None:
+    """Once a closed chain is pruned, its id binds again at its next start, like any new chain."""
+    chain = Chain("docint")
+    chain.close()
+    lines = chain.take()
+    state = v.State()
+    window = [v.Entry(T0 + index, tuple(sorted(labels("docint").items())), line) for index, line in enumerate(lines)]
+    v.check_window(state, window, silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS)
     assert state.sources == {chain.instance: ("docint", "docint-docint-backend-1")}
 
-    chain.query(1)
-    put(loki, chain.take(), now + 70 * NS, NS, labels("docint", "docint-worker"))
-    found = v.run_once(loki, state, CFG, now_ns=now + 120 * NS)
-    assert [(problem.kind, problem.seq) for problem in found] == [("source_mismatch", 7)]
+    v.prune(state, seen_before_ns=T0 + 60 * NS, heads_before_ns=T0 + NS)
+    assert (state.heads, state.sources) == ({}, {})
+    reused = v.Entry(T0 + 120 * NS, tuple(sorted(labels("docint", "docint-worker").items())), lines[0])
+    v.check_window(state, [reused], silence_ns=CFG.silence_ns, cap_ns=T0 + 180 * NS)
+
+    assert state.sources == {chain.instance: ("docint", "docint-docint-worker-1")}
+
+
+def test_many_forged_starts_are_checked_in_linear_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Thousands of forged starts for one chain cost one pass over the lines, nothing per start."""
+    calls: list[int] = []
+    verify = v.verify_chain
+
+    def counting(events: list[object], *args: Any, **kwargs: Any) -> audit_event.ChainReport:
+        calls.append(len(events))
+        return verify(events, *args, **kwargs)
+
+    monkeypatch.setattr(v, "verify_chain", counting)
+    chain = Chain("docint")
+    chain.query(4)
+    met_first = chain.take()[3:]  # seq 3 and 4: the chain is met mid-way, so it stays unbound
+    template = json.loads(forged_start(chain.instance))
+
+    def window(count: int) -> list[v.Entry]:
+        entries = [
+            v.Entry(T0 + index, tuple(sorted(labels("docint").items())), line) for index, line in enumerate(met_first)
+        ]
+        for index in range(count):
+            forged = dict(template, event_id=f"forged-{index}")
+            forged["hash"] = audit_event.event_hash(forged)
+            stream = tuple(sorted(labels("docint", f"docint-forger-{index}").items()))
+            entries.append(v.Entry(T0 + 100 + index, stream, audit_event.canonical_json(forged)))
+        return entries
+
+    def fastest(entries: list[v.Entry]) -> tuple[float, list[ChainProblem]]:
+        timings: list[float] = []
+        problems: list[ChainProblem] = []
+        for _ in range(3):
+            started = time.perf_counter()
+            _, problems = v.check_window(v.State(), entries, silence_ns=CFG.silence_ns, cap_ns=T0 + 60 * NS)
+            timings.append(time.perf_counter() - started)
+        return min(timings), problems
+
+    small, _ = fastest(window(1000))
+    large, problems = fastest(window(4000))
+
+    assert calls == [1002] * 3 + [4002] * 3  # every line checked once, in a single call
+    assert sum(problem.kind == "ambiguous_source" for problem in problems) == 4000
+    assert large < 10 * small  # 4x the lines: about 4x the time, not 16x
 
 
 def test_first_pass_takes_up_running_chains_but_flags_a_missing_start() -> None:
@@ -782,6 +884,9 @@ def test_state_round_trips_through_json() -> None:
     restored = v.State.from_json(json.loads(json.dumps(state.to_json())))
 
     assert restored == state
+    assert restored.sources == {chain.instance: ("docint", "docint-docint-backend-1")}
+    without_bindings = {key: value for key, value in state.to_json().items() if key != "sources"}
+    assert v.State.from_json(without_bindings).sources == {}  # nothing is bound on load
 
 
 # --- export and anchor ---------------------------------------------------------

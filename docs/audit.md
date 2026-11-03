@@ -131,35 +131,36 @@ API, which a container cannot set for itself:
   otherwise any container could print a complete, internally consistent
   chain in another service's name. An emitter's `service` is therefore its
   compose project name (`chorus`, `docint`, `nextext`, `translator`).
-- **Every chain is bound to one container, by its hash links.** A chain
-  belongs to the container of the line that verifiably continues it: its
-  start event, or the event right after the last one the verifier checked,
-  naming that event's hash. Which line happens to arrive first decides
-  nothing. The binding is kept with the chain heads in the verifier's
-  state, so it survives restarts. A line for a bound chain from any other
-  container — even one of the same project, such as an app's frontend next
-  to its backend — is a `source_mismatch` problem. Otherwise such a
-  container could print lines carrying a known chain's instance id and make
-  the legitimate chain look tampered with. A legitimate chain never changes
-  container: recreating a container starts a new process, and so a new
-  chain.
+- **A chain is bound to the container of its start.** The emitter's first
+  event, its `lifecycle` start at sequence 0, carries a random instance id
+  that exists nowhere before it, so no other container can print a line of
+  that chain first. When that start is the first line of the chain the
+  verifier meets — in time order, and a chain it already keeps a position
+  for counts as met — the chain is bound to the start's project and
+  container. No other line binds. The binding is kept with the chain heads
+  in the verifier's state, so it survives restarts. A line for a bound chain
+  from any other container — even one of the same project, such as an app's
+  frontend next to its backend — is a `source_mismatch` problem. Otherwise
+  such a container could print lines carrying a known chain's instance id
+  and make the legitimate chain look tampered with. A legitimate chain never
+  changes container: recreating a container starts a new process, and so a
+  new chain.
 
-Until a chain is bound, its lines are checked as usual while they come from
-a single container. When lines of an unbound chain checked together come
-from several containers, exactly one of them must continue the chain
-verifiably: that one is bound, the others are `source_mismatch`. A start
-event can be written without knowing anything about the chain, so it counts
-only when every other container's lines for that chain hash-link back to
-it, as copies or branches of the chain it starts. If no container continues
-the chain, or more than one does — a fabricated start next to a chain that
-was already running, for instance — the verifier reports `ambiguous_source`,
-binds nothing and checks none of those lines, so the chain's next lines are
-checked as if they were missing.
+A chain whose start the verifier did not meet first — one already running
+when a range checked from scratch opens, or when the verifier starts
+without its state — stays unbound until it ends. Nothing of it is set
+aside: all its lines are checked together, so lines that conflict show up
+as chain defects (`seq_repeat`, `broken_link`, …). Lines of an unbound chain
+from more than one container are also reported as `ambiguous_source`, once
+per additional container and run, naming the containers. A start event that
+arrives after other lines of its chain cannot be genuine: it binds nothing
+and is checked with the rest.
 
-`foreign_source` and `source_mismatch` lines are kept out of the chains
-entirely; the legitimate chain goes on verifying. Within a chain, the audit
-library also sets aside an event that names another service than the chain
-(`service_mismatch`).
+`foreign_source` and `source_mismatch` lines are reported and kept out of
+the chains; every other line is chain-checked. The running verifier reports
+or checks each line once, however often it reads it. Within a chain, the
+audit library also sets aside an event that names another service than the
+chain (`service_mismatch`).
 
 What source binding cannot cover: whoever has root on the host, or write
 access to the audit store itself, can still fabricate lines — with any label
@@ -189,7 +190,7 @@ silences every chain at once, yields none.
 | `schema` | A marked line is not a well-formed event |
 | `foreign_source` | An event names another service than the compose project it was sent from, or arrived without one; it is not chain-checked |
 | `source_mismatch` | A line for a chain bound to another container; it is not chain-checked |
-| `ambiguous_source` | Lines of a chain not yet bound came from several containers, and not exactly one of them continued it verifiably; nothing is bound and none of them is chain-checked, so the chain's next lines are checked as if they were missing |
+| `ambiguous_source` | An unbound chain (its start not met first) had lines from more than one container in one run; reported once per additional container, and every line is still chain-checked |
 | `unterminated` | A chain stopped without a shutdown event |
 
 Problems go to the verifier's log as kind, service, instance and sequence
@@ -271,15 +272,16 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
   are the only integrity control.
 - **New chains are bound to a project, not a container.** Any container of
   a project can start chains of its own in that project's name; the
-  container binding protects chains that already exist. A chain that was
-  already running when a range is checked from scratch (`make audit-verify`,
-  the verifier's first start) is checked, but bound to no container until a
-  later line continues it verifiably — for the running verifier, on its next
-  run. Until then, another container writing lines for that chain can keep
-  it from being checked (`ambiguous_source`). It can get the chain bound to
-  itself instead only with a line that continues the chain's last checked
-  event, which takes that event's hash, or with lines checked without any
-  from the chain's own container, which show as chain defects first.
+  container binding protects chains that already exist. A chain whose start
+  the verifier did not meet first — already running when a range is checked
+  from scratch (`make audit-verify`), when the verifier first starts, or
+  after it lost its state — is never bound. Another container can add lines
+  to such a chain: they are checked with it, and reported as
+  `ambiguous_source` in every run in which the chain's own container writes
+  too, which a live emitter's heartbeat does every minute. Lines that
+  continue the chain without a defect need the hash of its last line, which
+  only read access to the store gives. A chain id seen again after its
+  closed chain was pruned, a week after it ended, is a new chain.
 - **Late lines.** Loki answers queries about the last three hours from
   memory and older ones from flushed chunks. A line that reaches the store
   more than three hours after it was written (after a long collector outage)
