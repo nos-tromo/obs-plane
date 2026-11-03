@@ -73,6 +73,7 @@ PROBLEM_KINDS = (
     "seq_repeat",
     "no_start",
     "service_mismatch",
+    "after_shutdown",
     "unterminated",
     "foreign_source",
     "source_mismatch",
@@ -998,6 +999,7 @@ def render_metrics(state: State, interval_s: float) -> str:
     def escape(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
+    unbound = sum(1 for instance, head in state.heads.items() if not head.closed and instance not in state.sources)
     families: list[tuple[str, str, str, list[tuple[str, float]]]] = [
         ("audit_events_verified_total", "counter", "Hash-chained audit events checked.", [("", state.events_verified)]),
         (
@@ -1009,8 +1011,14 @@ def render_metrics(state: State, interval_s: float) -> str:
         (
             "audit_chains_open",
             "gauge",
-            "Chains that have not ended with a shutdown event.",
+            "Chains neither ended by a shutdown event nor reported unterminated.",
             [("", sum(1 for head in state.heads.values() if not head.closed))],
+        ),
+        (
+            "audit_chains_unbound",
+            "gauge",
+            "Open chains whose start event the verifier did not meet first, so bound to no container.",
+            [("", unbound)],
         ),
         (
             "audit_unchained_lines_total",

@@ -702,6 +702,31 @@ def test_checkpoints_persist_between_runs(tmp_path: Path) -> None:
     assert v.State.load(path).heads[chain.instance] == head
 
 
+def test_nothing_may_follow_a_shutdown_across_runs(tmp_path: Path) -> None:
+    """An ended chain stays ended through the saved state: a later continuation is after_shutdown."""
+    loki = FakeLoki()
+    chain = Chain("docint")
+    chain.query(1)
+    chain.close()
+    lines = chain.take()
+    put(loki, lines, T0 + NS, NS, labels("docint"))
+    path = tmp_path / "state.json"
+    first = v.State()
+    assert v.run_once(loki, first, CFG, now_ns=T0 + 600 * NS, persist=lambda: first.save(path)) == []
+
+    shutdown = json.loads(lines[-1])  # a valid next event for the chain, from its own container
+    appended = dict(shutdown, seq=3, prev_hash=shutdown["hash"], operation="heartbeat")
+    appended.update(event_id="01a1a000-0000-7000-8000-0000000000e1")
+    appended["hash"] = audit_event.event_hash(appended)
+    loki.add(T0 + 700 * NS, audit_event.canonical_json(appended), labels("docint"))
+    second = v.State.load(path)
+    found = v.run_once(loki, second, CFG, now_ns=T0 + 800 * NS)
+
+    assert [(problem.kind, problem.seq) for problem in found] == [("after_shutdown", 3)]
+    head = second.heads[chain.instance]
+    assert (head.seq, head.ended) == (2, True)
+
+
 def test_lines_arriving_late_within_the_overlap_are_still_checked() -> None:
     """Lines stored behind the cursor but within the overlap are checked."""
     loki = FakeLoki()
@@ -831,12 +856,22 @@ def test_metrics_text() -> None:
     state = v.State(events_verified=5, errors=1, last_success=1772323200.5)
     state.problems["bad_hash"] = 2
     state.unchained = {"edge-plane": 7}
+    bound = ChainHead(
+        service="docint", instance="a" * 16, seq=3, hash="0" * 64, ts="2026-03-01T00:00:00Z", closed=False
+    )
+    state.heads = {
+        bound.instance: bound,
+        "b" * 16: dataclasses.replace(bound, instance="b" * 16),  # open, start not met
+        "c" * 16: dataclasses.replace(bound, instance="c" * 16, closed=True, ended=True),
+    }
+    state.sources = {bound.instance: ("docint", "docint-docint-backend-1")}
     text = v.render_metrics(state, 300.0)
 
     for name, kind in [
         ("audit_events_verified_total", "counter"),
         ("audit_chain_problems_total", "counter"),
         ("audit_chains_open", "gauge"),
+        ("audit_chains_unbound", "gauge"),
         ("audit_unchained_lines_total", "counter"),
         ("audit_verifier_last_success_timestamp_seconds", "gauge"),
         ("audit_verifier_errors_total", "counter"),
@@ -848,6 +883,8 @@ def test_metrics_text() -> None:
     assert 'audit_chain_problems_total{kind="bad_hash"} 2\n' in text
     assert 'audit_unchained_lines_total{project="edge-plane"} 7\n' in text
     assert "audit_events_verified_total 5\n" in text
+    assert "audit_chains_open 2\n" in text
+    assert "audit_chains_unbound 1\n" in text
     assert "audit_verifier_last_success_timestamp_seconds 1772323200.5\n" in text
     assert "audit_verifier_interval_seconds 300.0\n" in text
     for line in text.splitlines():
@@ -876,6 +913,7 @@ def test_state_round_trips_through_json() -> None:
     loki = FakeLoki()
     chain = Chain("docint")
     chain.query(1)
+    chain.close()
     put(loki, chain.take(), T0 + NS, NS, labels("docint"))
     state = v.State(cursor_ns=T0, events_verified=3, unchained={"edge-plane": 2})
     entries = list(v.fetch(loki, v.CHAINED, T0, T0 + 60 * NS))
@@ -885,8 +923,13 @@ def test_state_round_trips_through_json() -> None:
 
     assert restored == state
     assert restored.sources == {chain.instance: ("docint", "docint-docint-backend-1")}
+    assert restored.heads[chain.instance].ended
     without_bindings = {key: value for key, value in state.to_json().items() if key != "sources"}
     assert v.State.from_json(without_bindings).sources == {}  # nothing is bound on load
+    older = json.loads(json.dumps(state.to_json()))
+    for head in older["heads"].values():
+        del head["ended"]  # written before heads carried it
+    assert not v.State.from_json(older).heads[chain.instance].ended
 
 
 # --- export and anchor ---------------------------------------------------------

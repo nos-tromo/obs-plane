@@ -175,7 +175,9 @@ A chain that has written nothing for `AUDIT_SILENCE_S` seconds (default 300,
 five heartbeats) without a `shutdown`, while other chains went on, is
 reported once as `unterminated` and then counted as closed. A crashed process
 therefore yields one finding; an outage of the collector or the store, which
-silences every chain at once, yields none.
+silences every chain at once, yields none. A chain reported silent may still
+resume. Only its `shutdown` event ends a chain for good: any event after it
+is `after_shutdown`.
 
 ### Problem kinds
 
@@ -187,6 +189,7 @@ silences every chain at once, yields none.
 | `seq_repeat` | A sequence number appears twice with different content |
 | `no_start` | A chain appears mid-way without its start |
 | `service_mismatch` | An event names another service than the rest of its chain; it is left out of the chain |
+| `after_shutdown` | An event follows its chain's shutdown event, after which a process writes nothing; it is left out of the chain |
 | `schema` | A marked line is not a well-formed event |
 | `foreign_source` | An event names another service than the compose project it was sent from, or arrived without one; it is not chain-checked |
 | `source_mismatch` | A line for a chain bound to another container; it is not chain-checked |
@@ -200,10 +203,15 @@ number only, never event content.
 
 The verifier serves Prometheus metrics on `audit-verifier:9105`:
 `audit_events_verified_total`, `audit_chain_problems_total{kind}`,
-`audit_chains_open`, `audit_unchained_lines_total{project}`,
+`audit_chains_open`, `audit_chains_unbound`,
+`audit_unchained_lines_total{project}`,
 `audit_verifier_last_success_timestamp_seconds`,
 `audit_verifier_errors_total` and `audit_verifier_interval_seconds`. Its
 counters are kept in its state, so they survive restarts.
+`audit_chains_unbound` counts the open chains whose start the verifier did
+not meet first, which no container binding protects
+([Source binding](#source-binding)). No rule fires on it: `ambiguous_source`
+already reports actual conflicts.
 
 Three rules in `prometheus/rules.yml` (group `audit`) fire on them, without a
 notification channel like every other rule here:
@@ -275,7 +283,8 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
   container binding protects chains that already exist. A chain whose start
   the verifier did not meet first — already running when a range is checked
   from scratch (`make audit-verify`), when the verifier first starts, or
-  after it lost its state — is never bound. Another container can add lines
+  after it lost its state — is never bound; `audit_chains_unbound` shows how
+  many such chains are open. Another container can add lines
   to such a chain: they are checked with it, and reported as
   `ambiguous_source` in every run in which the chain's own container writes
   too, which a live emitter's heartbeat does every minute. Lines that

@@ -527,9 +527,10 @@ class ChainProblem:
         seq: The sequence number at which it was found, if any.
         kind: ``schema``, ``bad_hash``, ``broken_link``, ``seq_gap``,
             ``seq_repeat``, ``no_start``, ``service_mismatch`` (an event
-            naming another service than its chain, left out of the chain)
-            or ``unterminated`` (an open chain that went silent for longer
-            than allowed).
+            naming another service than its chain, left out of the chain),
+            ``after_shutdown`` (an event following its chain's shutdown,
+            left out of the chain) or ``unterminated`` (an open chain that
+            went silent for longer than allowed).
         detail: A short human-readable description, never event content.
     """
 
@@ -551,7 +552,11 @@ class ChainHead:
         hash: That event's hash, which the next event must name as
             ``prev_hash``.
         ts: That event's timestamp.
-        closed: Whether the chain ended with a ``shutdown`` event.
+        closed: Whether the chain is finished: it ended with its
+            ``shutdown`` event, or it was reported ``unterminated`` (which
+            is then not reported again; it may still resume).
+        ended: Whether it ended with its ``shutdown`` event. A process
+            writes nothing after that, so nothing may follow.
     """
 
     service: str
@@ -560,6 +565,7 @@ class ChainHead:
     hash: str
     ts: str
     closed: bool
+    ended: bool = False
 
 
 @dataclass
@@ -718,6 +724,7 @@ def verify_chain(
         expected_seq = 0 if head is None else head.seq + 1
         expected_prev = GENESIS_HASH if head is None else head.hash
         closed = False if head is None else head.closed
+        ended = False if head is None else head.ended
         last: Mapping[str, Any] | None = None
         for event in chain:
             seq = int(event["seq"])
@@ -727,6 +734,11 @@ def verify_chain(
                 continue
             if last is not None and seq == int(last["seq"]):
                 report.problems.append(ChainProblem(service, instance, seq, "seq_repeat", "sequence number repeats"))
+                continue
+            if ended and seq >= expected_seq:
+                report.problems.append(
+                    ChainProblem(service, instance, seq, "after_shutdown", "event after the chain's shutdown")
+                )
                 continue
             if seq != expected_seq:
                 kind = "no_start" if head is None and last is None else "seq_gap"
@@ -744,7 +756,7 @@ def verify_chain(
                 report.problems.append(ChainProblem(service, instance, seq, "bad_hash", "event hash does not match"))
             expected_seq = seq + 1
             expected_prev = str(event["hash"])
-            closed = event["action"] == "lifecycle" and event["operation"] == "shutdown"
+            closed = ended = event["action"] == "lifecycle" and event["operation"] == "shutdown"
             last = event
         if last is not None:
             report.heads[instance] = ChainHead(
@@ -754,6 +766,7 @@ def verify_chain(
                 hash=str(last["hash"]),
                 ts=str(last["ts"]),
                 closed=closed,
+                ended=ended,
             )
     for instance, head in known.items():
         report.heads.setdefault(instance, head)
