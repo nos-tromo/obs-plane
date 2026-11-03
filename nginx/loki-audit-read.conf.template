@@ -8,6 +8,11 @@
 # audit-read network: GET and HEAD on Loki's read API, 403 for everything
 # else. Only alloy, the writer, reaches loki-audit itself (audit network).
 #
+# Loki receives the path nginx matched — normalized, with dot segments and
+# percent-encoding resolved ($uri) — never the client's raw request line, so
+# what is checked here is what Loki routes. Name segments allow label-name
+# characters only, so nothing decoded (spaces, line breaks, "?") is passed on.
+#
 # No access log: request URIs carry reviewers' queries.
 
 server {
@@ -21,12 +26,12 @@ server {
 
     location = /ready {
         limit_except GET { deny all; }
-        proxy_pass $loki;
+        proxy_pass $loki$uri$is_args$args;
     }
 
-    location ~ ^/loki/api/v1/(query|query_range|labels|label/[^/]+/values|series|index/(stats|volume|volume_range)|detected_labels|detected_fields|detected_field/[^/]+/values|patterns|format_query|status/buildinfo)$ {
+    location ~ ^/loki/api/v1/(query|query_range|labels|label/[A-Za-z0-9_.:-]+/values|series|index/(stats|volume|volume_range)|detected_labels|detected_fields|detected_field/[A-Za-z0-9_.:-]+/values|patterns|format_query|status/buildinfo)$ {
         limit_except GET { deny all; }
-        proxy_pass $loki;
+        proxy_pass $loki$uri$is_args$args;
         proxy_http_version 1.1;
         proxy_read_timeout 120s;
     }

@@ -90,7 +90,10 @@ deliberate `docker volume rm`.
   read API (queries, labels, series, index stats and volume, detected
   labels and fields, patterns, query formatting, build info, `/ready`) and
   answers 403 to everything else: pushing lines, deleting, flushing, tailing,
-  admin endpoints. Grafana's datasource proxy therefore cannot be used to
+  admin endpoints. Loki receives the path the proxy checked — normalized,
+  with `..` segments and percent-encoding resolved — never the client's raw
+  request line, so no encoded path can be checked as a query and arrive as
+  something else. Grafana's datasource proxy therefore cannot be used to
   write either.
 - **Operators** see the trail's health — the verifier's metrics and alerts,
   which carry counts and problem kinds only — never its lines. The ops

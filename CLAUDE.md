@@ -114,7 +114,9 @@ edge-secret check).
   (`nginx/loki-audit-read.conf.template`). Never put a reader, the ops
   `grafana` or `prometheus` on `audit`, never point a datasource or
   `AUDIT_LOKI_URL` at `loki-audit` directly, and never add a write or admin
-  endpoint to the proxy's allowlist.
+  endpoint to the proxy's allowlist. The proxy forwards the path it matched
+  (`$uri`, normalized), never the raw request line, and its name segments
+  allow label-name characters only; keep both.
 - **Both Grafanas listen on `127.0.0.1:3001` only, behind a guard.** An
   nginx sidecar with `network_mode: service:<grafana>` owns `:3000` and
   checks `X-Edge-Secret`: `grafana-audit-guard` fail-closed (403,
