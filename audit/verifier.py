@@ -19,14 +19,18 @@ Subcommands (operator guide: docs/audit.md):
 
 A hash chain proves that lines were not altered, not who wrote them, so
 every chained line is first bound to where it came from, by the labels Alloy
-took from the Docker API, which a container cannot set for itself. A new
-chain is bound to its project: an event whose ``service`` is not, ignoring
-case, the line's ``compose_project`` (or a line without that label) is a
-``foreign_source`` problem. Every chain is bound to the container it was
-first seen from: a line for a known chain from any other container is a
-``source_mismatch`` problem. Either way the line is kept out of the chains.
-Problems are reported by kind, service, instance and sequence number, never
-with event content.
+took from the Docker API, which a container cannot set for itself. A chain
+is bound to its project: an event whose ``service`` is not, ignoring case,
+the line's ``compose_project`` (or a line without that label) is a
+``foreign_source`` problem. A chain is bound to a container by its hash
+links, never by which line arrived first: by the line that verifiably
+continues it, which is its start event or the event after its last verified
+one. A line for a bound chain from any other container is a
+``source_mismatch`` problem; lines for an unbound chain from several
+containers, of which not exactly one continues it verifiably, are
+``ambiguous_source``. Such lines are kept out of the chains. Problems are
+reported by kind, service, instance and sequence number, never with event
+content.
 
 Stdlib only; Python 3.12+. Reads loki-audit through its read-only proxy
 (loki-audit-read) and never writes to it.
@@ -74,6 +78,7 @@ PROBLEM_KINDS = (
     "unterminated",
     "foreign_source",
     "source_mismatch",
+    "ambiguous_source",
 )
 METRICS_PORT = 9105
 #: Lines per query (Loki's default ``max_entries_limit_per_query``), and the
@@ -519,10 +524,12 @@ class State:
         problems: Problems found so far, by kind.
         unchained: Unchained audit-lane lines seen so far, by compose project.
         heads: The last verified position of each chain.
-        sources: ``instance -> (compose project, container)`` each chain was
-            first seen from; kept and pruned together with ``heads``.
-        seen: ``event_id -> (line digest, store time)`` of recently checked
-            events, so re-read lines are skipped.
+        sources: ``instance -> (compose project, container)`` each chain is
+            bound to, by the line that verifiably continued it; pruned
+            together with ``heads``. A chain without an entry is unbound.
+        seen: ``(event_id, compose project, container) -> (line digest,
+            store time)`` of recently checked lines, the key joined by NUL,
+            so re-read lines are skipped.
     """
 
     cursor_ns: int | None = None
@@ -628,6 +635,171 @@ def _time_ns(value: object) -> int | None:
     return ((moment - EPOCH) // timedelta(microseconds=1)) * 1000
 
 
+def _int_seq(value: object) -> int | None:
+    """Read a sequence number.
+
+    Args:
+        value: The ``seq`` of an event, of any type.
+
+    Returns:
+        The value when it is an integer (not a bool), else ``None``.
+    """
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+@dataclass(frozen=True)
+class _Line:
+    """A parsed chained line and the source its labels name.
+
+    Attributes:
+        entry: The stored line.
+        event: Its parsed JSON, of any type.
+        source: Its ``(compose_project, container)`` labels.
+    """
+
+    entry: Entry
+    event: object
+    source: tuple[str, str]
+
+    @property
+    def fields(self) -> dict[str, Any]:
+        """The event's fields; empty when it is not a JSON object."""
+        return self.event if isinstance(self.event, dict) else {}
+
+    def problem(self, kind: str, detail: str) -> ChainProblem:
+        """Describe a problem with this line, without its content.
+
+        Args:
+            kind: The problem kind.
+            detail: What is wrong, with labels only.
+
+        Returns:
+            The problem, under the line's compose project.
+        """
+        return ChainProblem(
+            service=safe(self.source[0]),
+            instance=_label(self.fields.get("instance")),
+            seq=_int_seq(self.fields.get("seq")),
+            kind=kind,
+            detail=detail,
+        )
+
+
+def _continues(event: Mapping[str, Any], head: ChainHead | None) -> bool:
+    """Tell whether an event verifiably continues its chain.
+
+    After ``head`` that is the next event, naming the head's hash. Without a
+    head it is the chain's start: the emitter's ``lifecycle``/``start`` event
+    at ``seq`` 0, naming the genesis hash. The library decides: schema,
+    sequence, link, the event's own hash and, after a head, the service.
+
+    Args:
+        event: A parsed line of the chain.
+        head: The chain's last verified position, if any.
+
+    Returns:
+        Whether the event links.
+    """
+    if head is None:
+        if event.get("action") != "lifecycle" or event.get("operation") != "start":
+            return False
+    elif event.get("seq") != head.seq + 1:
+        return False
+    return verify_chain([event], None if head is None else {head.instance: head}).ok
+
+
+def _position(event: Mapping[str, Any]) -> tuple[int, str] | None:
+    """Locate an event in its chain.
+
+    Args:
+        event: A parsed line.
+
+    Returns:
+        ``(seq, hash)``, or ``None`` when either is malformed.
+    """
+    seq, digest = _int_seq(event.get("seq")), event.get("hash")
+    return (seq, digest) if seq is not None and isinstance(digest, str) else None
+
+
+def _descendants(start: Mapping[str, Any], events: Iterable[Mapping[str, Any]]) -> set[tuple[int, str]]:
+    """Collect the positions that hash-link back to a start event.
+
+    Args:
+        start: A chain's start event.
+        events: Lines of the same chain, in any order.
+
+    Returns:
+        The ``(seq, hash)`` of the start and of every event naming one of
+        them as ``prev_hash`` one ``seq`` later, transitively.
+    """
+    root = _position(start)
+    reach: set[tuple[int, str]] = set() if root is None else {root}
+    linked: list[tuple[tuple[int, str], str]] = []
+    for event in events:
+        position, prev_hash = _position(event), event.get("prev_hash")
+        if position is not None and isinstance(prev_hash, str):
+            linked.append((position, prev_hash))
+    for (seq, digest), prev_hash in sorted(linked):
+        if (seq - 1, prev_hash) in reach:
+            reach.add((seq, digest))
+    return reach
+
+
+def _bind(
+    instance: str, lines: Sequence[_Line], head: ChainHead | None
+) -> tuple[tuple[str, str] | None, list[ChainProblem]]:
+    """Decide from its hash links which source an unbound chain belongs to.
+
+    A source links when one of its lines verifiably continues the chain
+    (:func:`_continues`). A start event can be written without knowing
+    anything about the chain, so without a head it links only when every
+    line of the chain from other sources hash-links back to it — copies or
+    branches of the chain it starts. A chain already running when the window
+    opens, next to a fabricated start, therefore has no linking source.
+
+    The only linking source is the chain's. With lines from several sources
+    and no linking source, or more than one, the chain is ambiguous: one
+    ``ambiguous_source`` problem for each source after the first, in sort
+    order.
+
+    Args:
+        instance: The chain id.
+        lines: The window's new lines of that chain, from any source.
+        head: The chain's last verified position, if any.
+
+    Returns:
+        The source to bind the chain to, or ``None``; and the
+        ``ambiguous_source`` problems, if any.
+    """
+    linking: set[tuple[str, str]] = set()
+    for line in lines:
+        if line.source in linking or not _continues(line.fields, head):
+            continue
+        if head is None:
+            others = [other.fields for other in lines if other.source != line.source]
+            reach = _descendants(line.fields, [other.fields for other in lines]) if others else set()
+            if not all(_position(other) in reach for other in others):
+                continue
+        linking.add(line.source)
+    if len(linking) == 1:
+        return next(iter(linking)), []
+    sources = sorted({line.source for line in lines})
+    outcome = "more than one continuing the chain" if linking else "none continuing the chain verifiably"
+    problems: list[ChainProblem] = []
+    for source in sources[1:]:
+        seqs = [_int_seq(line.fields.get("seq")) for line in lines if line.source == source]
+        problems.append(
+            ChainProblem(
+                service=safe(source[0]),
+                instance=_label(instance),
+                seq=min((seq for seq in seqs if seq is not None), default=None),
+                kind="ambiguous_source",
+                detail=f"lines from {_label(sources[0][1] or None)} and {_label(source[1] or None)}, {outcome}",
+            )
+        )
+    return None, problems
+
+
 def check_window(
     state: State,
     entries: Sequence[Entry],
@@ -642,14 +814,21 @@ def check_window(
     ``service`` is not, ignoring case, the line's ``compose_project``, or a
     line without that label, is a ``foreign_source`` problem — a container
     could otherwise print a complete fake chain in another service's name. A
-    line for a chain already bound to another (project, container) is a
+    line for a chain bound to another (project, container) is a
     ``source_mismatch`` problem — a sibling container could otherwise make a
-    legitimate chain look tampered with. Both stay out of the chains; the
-    first accepted line of a chain binds it to its container.
+    legitimate chain look tampered with. Both stay out of the chains.
 
-    Lines whose ``event_id`` was already checked with identical content are
+    A chain is bound by its hash links, never by arrival order
+    (:func:`_bind`). The lines of an unbound chain from a single source are
+    checked as usual, and the chain stays unbound until one of them
+    verifiably continues it. Lines from several sources of which not exactly
+    one continues the chain are ``ambiguous_source``: none of them is
+    checked, and the chain's head does not move.
+
+    Lines already checked with identical content from the same source are
     skipped (re-read pages, a line ingested twice); a different line under a
-    known id is checked again and so surfaces as a problem.
+    known id, or the same line from another source, is checked again and so
+    surfaces as a problem.
 
     Open chains that went silent are left to :func:`audit_event.verify_chain`
     (``now``/``silence``), with ``now`` set to the newest event seen rather
@@ -673,9 +852,8 @@ def check_window(
     Returns:
         The number of events checked and the problems found.
     """
-    problems: list[ChainProblem] = []
-    events: list[tuple[Entry, dict[str, Any]]] = []
-    malformed: list[object] = []
+    slots: list[ChainProblem | _Line] = []
+    unbound: dict[str, list[_Line]] = {}
     for entry in entries:
         labels = dict(entry.labels)
         project = labels.get("compose_project", "")
@@ -683,45 +861,55 @@ def check_window(
         try:
             event: object = json.loads(entry.line)
         except ValueError:
-            problems.append(ChainProblem(safe(project), "?", None, "schema", "line is not JSON"))
+            slots.append(ChainProblem(safe(project), "?", None, "schema", "line is not JSON"))
             continue
-        fields: dict[str, Any] = event if isinstance(event, dict) else {}
-        service, instance = fields.get("service"), fields.get("instance")
-        bound = state.sources.get(instance) if isinstance(instance, str) else None
-        kind = detail = None
-        if not project or (isinstance(service, str) and service.lower() != project.lower()):
-            kind = "foreign_source"
-            detail = f"claims service {_label(service)}, sent from project {_label(project or None)}"
-        elif bound is not None and bound != (project, container):
-            kind = "source_mismatch"
-            detail = f"chain of container {_label(bound[1] or None)}, sent from {_label(container or None)}"
-        event_id = fields.get("event_id")
+        line = _Line(entry, event, (project, container))
+        event_id = line.fields.get("event_id")
         if isinstance(event_id, str):
-            key = event_id if kind is None else f"{event_id}\x00{project}\x00{container}"
+            key = f"{event_id}\x00{project}\x00{container}"
             digest = hashlib.sha256(entry.line.encode("utf-8")).hexdigest()[:32]
             prior = state.seen.get(key)
             if prior is not None and prior[0] == digest:
                 continue
             if prior is None:
                 state.seen[key] = (digest, entry.ts_ns)
-        if kind is not None and detail is not None:
-            seq = fields.get("seq")
-            problems.append(
-                ChainProblem(
-                    service=safe(project),
-                    instance=_label(instance),
-                    seq=seq if isinstance(seq, int) and not isinstance(seq, bool) else None,
-                    kind=kind,
-                    detail=detail,
-                )
-            )
+        service, instance = line.fields.get("service"), line.fields.get("instance")
+        if not project or (isinstance(service, str) and service.lower() != project.lower()):
+            detail = f"claims service {_label(service)}, sent from project {_label(project or None)}"
+            slots.append(line.problem("foreign_source", detail))
             continue
-        if isinstance(instance, str):
-            state.sources.setdefault(instance, (project, container))
-        if isinstance(event, dict):
-            events.append((entry, event))
+        if isinstance(instance, str) and instance not in state.sources:
+            unbound.setdefault(instance, []).append(line)
+        slots.append(line)
+
+    ambiguous: dict[str, list[ChainProblem]] = {}
+    for instance, lines in unbound.items():
+        source, found = _bind(instance, lines, state.heads.get(instance))
+        if source is not None:
+            state.sources[instance] = source
+        elif found:
+            ambiguous[instance] = found
+
+    problems: list[ChainProblem] = []
+    events: list[tuple[Entry, dict[str, Any]]] = []
+    malformed: list[object] = []
+    for slot in slots:
+        if isinstance(slot, ChainProblem):
+            problems.append(slot)
+            continue
+        instance = slot.fields.get("instance")
+        if isinstance(instance, str) and instance in ambiguous:
+            problems.extend(ambiguous[instance])
+            ambiguous[instance] = []  # reported once, at the chain's first line
+            continue
+        bound = state.sources.get(instance) if isinstance(instance, str) else None
+        if bound is not None and bound != slot.source:
+            detail = f"chain of container {_label(bound[1] or None)}, sent from {_label(slot.source[1] or None)}"
+            problems.append(slot.problem("source_mismatch", detail))
+        elif isinstance(slot.event, dict):
+            events.append((slot.entry, slot.event))
         else:
-            malformed.append(event)
+            malformed.append(slot.event)
 
     checkpoints = dict(state.heads)
     if window_start_ns is not None:
