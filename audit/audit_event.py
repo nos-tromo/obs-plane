@@ -526,8 +526,10 @@ class ChainProblem:
         instance: The chain (emitter instance) it belongs to.
         seq: The sequence number at which it was found, if any.
         kind: ``schema``, ``bad_hash``, ``broken_link``, ``seq_gap``,
-            ``seq_repeat``, ``no_start`` or ``unterminated`` (an open chain
-            that went silent for longer than allowed).
+            ``seq_repeat``, ``no_start``, ``service_mismatch`` (an event
+            naming another service than its chain, left out of the chain)
+            or ``unterminated`` (an open chain that went silent for longer
+            than allowed).
         detail: A short human-readable description, never event content.
     """
 
@@ -710,14 +712,19 @@ def verify_chain(
     known = dict(checkpoints or {})
     for instance, chain in by_instance.items():
         chain.sort(key=lambda item: int(item["seq"]))
-        service = str(chain[0]["service"])
         head = known.get(instance)
+        # A chain belongs to one service: its checkpoint's, else its first event's.
+        service = head.service if head is not None else str(chain[0]["service"])
         expected_seq = 0 if head is None else head.seq + 1
         expected_prev = GENESIS_HASH if head is None else head.hash
         closed = False if head is None else head.closed
         last: Mapping[str, Any] | None = None
         for event in chain:
             seq = int(event["seq"])
+            if str(event["service"]) != service:
+                detail = f"event of service {_label(event['service'])} in a chain of {_label(service)}"
+                report.problems.append(ChainProblem(service, instance, seq, "service_mismatch", detail))
+                continue
             if last is not None and seq == int(last["seq"]):
                 report.problems.append(ChainProblem(service, instance, seq, "seq_repeat", "sequence number repeats"))
                 continue

@@ -341,6 +341,24 @@ def test_events_from_another_source_stay_out_of_the_chains() -> None:
     assert 'audit_chain_problems_total{kind="foreign_source"} 6\n' in v.render_metrics(state, CFG.interval_s)
 
 
+def test_a_chain_keeps_one_service() -> None:
+    """An event matching its label only case-insensitively still cannot switch its chain's service."""
+    loki = FakeLoki()
+    chain = Chain("docint")
+    chain.query(2)
+    lines = chain.take()
+    switched = json.loads(lines[2])
+    switched["service"] = "DocInt"
+    switched["hash"] = audit_event.event_hash(switched)
+    lines[2] = audit_event.canonical_json(switched)
+    put(loki, lines, T0 + NS, NS, labels("docint"))
+
+    result = v.check_range(loki, CFG, T0, T0 + 3600 * NS)
+
+    assert [(problem.kind, problem.seq) for problem in result.problems] == [("service_mismatch", 2)]
+    assert result.heads[chain.instance].seq == 1
+
+
 def test_first_pass_takes_up_running_chains_but_flags_a_missing_start() -> None:
     """A chain running at the window start is taken up; one starting mid-window without seq 0 is not."""
     loki = FakeLoki()

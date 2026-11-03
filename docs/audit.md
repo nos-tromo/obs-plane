@@ -131,6 +131,7 @@ silences every chain at once, yields none.
 | `seq_gap` | Sequence numbers jump: lines missing |
 | `seq_repeat` | A sequence number appears twice with different content |
 | `no_start` | A chain appears mid-way without its start |
+| `service_mismatch` | An event names another service than the rest of its chain; it is left out of the chain |
 | `schema` | A marked line is not a well-formed event |
 | `foreign_source` | An event names another service than the compose project it was sent from, or arrived without one; it is not chain-checked |
 | `unterminated` | A chain stopped without a shutdown event |

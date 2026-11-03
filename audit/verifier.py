@@ -66,6 +66,7 @@ PROBLEM_KINDS = (
     "seq_gap",
     "seq_repeat",
     "no_start",
+    "service_mismatch",
     "unterminated",
     "foreign_source",
 )
