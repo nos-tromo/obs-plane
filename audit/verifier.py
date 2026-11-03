@@ -17,10 +17,13 @@ Subcommands (operator guide: docs/audit.md):
     Write ``anchor-<day>.json``: line counts per compose project, the SHA-256
     of that day's full export, and the chain heads at the end of the day.
 
-Besides the chain checks, every chained event is bound to the container it
-came from: its ``service`` must equal the container's compose project, and a
-chain must stay in one container. Problems are reported by kind, service,
-instance and sequence number, never with event content.
+A hash chain proves that lines were not altered, not who wrote them, so
+every chained event is first bound to where it came from: its ``service``
+must equal, ignoring case, the ``compose_project`` label Alloy took from the
+Docker API, which a container cannot set for itself. An event that does not,
+or that arrived without the label, is a ``foreign_source`` problem and is
+kept out of the chains. Problems are reported by kind, service, instance and
+sequence number, never with event content.
 
 Stdlib only; Python 3.12+. Reads loki-audit, never writes to it.
 """
@@ -64,7 +67,7 @@ PROBLEM_KINDS = (
     "seq_repeat",
     "no_start",
     "unterminated",
-    "source_mismatch",
+    "foreign_source",
 )
 METRICS_PORT = 9105
 #: Lines per query (Loki's default ``max_entries_limit_per_query``), and the
@@ -191,6 +194,18 @@ def safe(value: object, limit: int = 64) -> str:
     """
     text = _SAFE.sub("_", str(value))[:limit]
     return text or "?"
+
+
+def _label(value: object) -> str:
+    """Like :func:`safe` for strings; anything else becomes ``?``.
+
+    Args:
+        value: A field taken from an untrusted event.
+
+    Returns:
+        The sanitised string, or ``?``.
+    """
+    return safe(value) if isinstance(value, str) else "?"
 
 
 def _logql_string(text: str) -> str:
@@ -498,7 +513,6 @@ class State:
         problems: Problems found so far, by kind.
         unchained: Unchained audit-lane lines seen so far, by compose project.
         heads: The last verified position of each chain.
-        sources: The container each chain was first seen in.
         seen: ``event_id -> (line digest, store time)`` of recently checked
             events, so re-read lines are skipped.
     """
@@ -510,7 +524,6 @@ class State:
     problems: dict[str, int] = field(default_factory=lambda: dict.fromkeys(PROBLEM_KINDS, 0))
     unchained: dict[str, int] = field(default_factory=dict)
     heads: dict[str, ChainHead] = field(default_factory=dict)
-    sources: dict[str, str] = field(default_factory=dict)
     seen: dict[str, tuple[str, int]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, object]:
@@ -528,7 +541,6 @@ class State:
             "problems": self.problems,
             "unchained": self.unchained,
             "heads": {instance: dataclasses.asdict(head) for instance, head in self.heads.items()},
-            "sources": self.sources,
             "seen": {event_id: list(value) for event_id, value in self.seen.items()},
         }
 
@@ -557,7 +569,6 @@ class State:
             problems=problems,
             unchained={str(k): int(v) for k, v in data.get("unchained", {}).items()},
             heads={instance: ChainHead(**head) for instance, head in data.get("heads", {}).items()},
-            sources={str(k): str(v) for k, v in data.get("sources", {}).items()},
             seen={str(k): (str(v[0]), int(v[1])) for k, v in data.get("seen", {}).items()},
         )
 
@@ -616,6 +627,12 @@ def check_window(
 ) -> tuple[int, list[ChainProblem]]:
     """Check one window of chained lines and advance the chain heads.
 
+    Every line is first bound to its source: an event whose ``service`` is
+    not, ignoring case, the line's ``compose_project`` label, or a line
+    without that label, is a ``foreign_source`` problem and stays out of the
+    chains — a container could otherwise print a complete fake chain in
+    another service's name.
+
     Lines whose ``event_id`` was already checked with identical content are
     skipped (re-read pages, a line ingested twice); a different line under a
     known id is checked again and so surfaces as a problem.
@@ -628,7 +645,7 @@ def check_window(
     the future cannot make every other chain look silent.
 
     Args:
-        state: Heads, sources and recently seen ids; updated in place.
+        state: Heads and recently seen ids; updated in place.
         entries: The window's chained lines, oldest first.
         silence_ns: How long an open chain may stay silent before it is
             reported ``unterminated``; also the margin within which a chain
@@ -644,40 +661,43 @@ def check_window(
     """
     problems: list[ChainProblem] = []
     events: list[tuple[Entry, dict[str, Any]]] = []
-    bound: set[str] = set()
+    malformed: list[object] = []
     for entry in entries:
-        labels = dict(entry.labels)
-        project = labels.get("compose_project", "")
-        container = labels.get("container", "")
+        project = dict(entry.labels).get("compose_project", "")
         try:
-            event = json.loads(entry.line)
+            event: object = json.loads(entry.line)
         except ValueError:
-            event = None
-        if not isinstance(event, dict):
-            problems.append(ChainProblem(safe(project), "?", None, "schema", "line is not a JSON object"))
+            problems.append(ChainProblem(safe(project), "?", None, "schema", "line is not JSON"))
             continue
-        event_id = event.get("event_id")
+        fields: dict[str, Any] = event if isinstance(event, dict) else {}
+        service = fields.get("service")
+        foreign = not project or (isinstance(service, str) and service.lower() != project.lower())
+        event_id = fields.get("event_id")
         if isinstance(event_id, str):
+            key = f"{event_id}\x00{project}" if foreign else event_id
             digest = hashlib.sha256(entry.line.encode("utf-8")).hexdigest()[:32]
-            prior = state.seen.get(event_id)
+            prior = state.seen.get(key)
             if prior is not None and prior[0] == digest:
                 continue
             if prior is None:
-                state.seen[event_id] = (digest, entry.ts_ns)
-        instance = event.get("instance")
-        if isinstance(instance, str):
-            first_container = state.sources.setdefault(instance, container)
-            seq = event.get("seq") if isinstance(event.get("seq"), int) else None
-            if instance not in bound:
-                if event.get("service") != project:
-                    detail = f"service {safe(event.get('service'))} in a container of project {safe(project)}"
-                    problems.append(ChainProblem(safe(project), safe(instance), seq, "source_mismatch", detail))
-                    bound.add(instance)
-                elif first_container != container:
-                    detail = "chain continues in another container"
-                    problems.append(ChainProblem(safe(project), safe(instance), seq, "source_mismatch", detail))
-                    bound.add(instance)
-        events.append((entry, event))
+                state.seen[key] = (digest, entry.ts_ns)
+        if foreign:
+            seq = fields.get("seq")
+            detail = f"claims service {_label(service)}, sent from project {_label(project or None)}"
+            problems.append(
+                ChainProblem(
+                    service=safe(project),
+                    instance=_label(fields.get("instance")),
+                    seq=seq if isinstance(seq, int) and not isinstance(seq, bool) else None,
+                    kind="foreign_source",
+                    detail=detail,
+                )
+            )
+            continue
+        if isinstance(event, dict):
+            events.append((entry, event))
+        else:
+            malformed.append(event)
 
     checkpoints = dict(state.heads)
     if window_start_ns is not None:
@@ -710,7 +730,7 @@ def check_window(
     if known_times:
         now = EPOCH + timedelta(microseconds=min(max(known_times), cap_ns) // 1000)
     report = verify_chain(
-        [event for _, event in events],
+        [event for _, event in events] + malformed,
         checkpoints,
         now=now,
         silence=timedelta(microseconds=silence_ns // 1000),
@@ -732,7 +752,6 @@ def prune(state: State, *, seen_before_ns: int, heads_before_ns: int) -> None:
     for instance, head in list(state.heads.items()):
         if head.closed and (_time_ns(head.ts) or 0) < heads_before_ns:
             del state.heads[instance]
-    state.sources = {instance: source for instance, source in state.sources.items() if instance in state.heads}
 
 
 @dataclass(frozen=True)

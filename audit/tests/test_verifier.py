@@ -306,25 +306,39 @@ def test_an_altered_copy_under_a_known_event_id_is_reported() -> None:
     assert "seq_repeat" in kinds(result.problems)
 
 
-def test_events_are_bound_to_their_container() -> None:
-    """Events must name their container's project and stay in one container."""
+def test_events_from_another_source_stay_out_of_the_chains() -> None:
+    """An event must name the compose project it was sent from (any case); others are foreign_source."""
     loki = FakeLoki()
-    impostor = Chain("chorus")
-    impostor.query(3)
+    impostor = Chain("chorus")  # a complete, consistent chain printed by a docint container
+    impostor.query(2)
+    impostor.close()
     put(loki, impostor.take(), T0 + NS, NS, labels("docint"))
-    mover = Chain("translator")
-    mover.query(4)
-    lines = mover.take()
-    put(loki, lines[:2], T0 + 10 * NS, NS, labels("translator"))
-    put(loki, lines[2:], T0 + 20 * NS, NS, labels("translator", container="translator-other-1"))
+    genuine = Chain("Translator")  # differs from its label only in case
+    genuine.query(2)
+    genuine.close()
+    lines = genuine.take()
+    put(loki, lines, T0 + 10 * NS, NS, labels("translator"))
+    loki.add(T0 + 20 * NS, lines[1], labels("docint"))  # a genuine line, resent from docint
+    unlabelled = {name: value for name, value in labels("translator").items() if name != "compose_project"}
+    loki.add(T0 + 30 * NS, lines[2], unlabelled)
 
     result = v.check_range(loki, CFG, T0, T0 + 3600 * NS)
 
-    mismatches = [problem for problem in result.problems if problem.kind == "source_mismatch"]
-    assert [(problem.instance, problem.detail) for problem in mismatches] == [
-        (impostor.instance, "service chorus in a container of project docint"),
-        (mover.instance, "chain continues in another container"),
-    ]
+    foreign = [problem for problem in result.problems if problem.kind == "foreign_source"]
+    assert len(foreign) == 6
+    assert (foreign[0].service, foreign[0].instance, foreign[0].detail) == (
+        "docint",
+        impostor.instance,
+        "claims service chorus, sent from project docint",
+    )
+    assert (foreign[-1].service, foreign[-1].detail) == ("?", "claims service Translator, sent from project ?")
+    assert [problem for problem in result.problems if problem.kind != "foreign_source"] == []
+    assert set(result.heads) == {genuine.instance}
+
+    state = v.State()
+    v.run_once(loki, state, CFG, now_ns=T0 + 100 * NS)
+    v.run_once(loki, state, CFG, now_ns=T0 + 200 * NS)  # re-reads every line within the overlap
+    assert 'audit_chain_problems_total{kind="foreign_source"} 6\n' in v.render_metrics(state, CFG.interval_s)
 
 
 def test_first_pass_takes_up_running_chains_but_flags_a_missing_start() -> None:

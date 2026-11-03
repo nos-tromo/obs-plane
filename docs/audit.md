@@ -97,16 +97,32 @@ reads the whole retention window. Each run also re-reads the 15 minutes
 before its cursor, skipping events it has already checked, so lines that
 reach the store late are still checked.
 
-It also binds every event to where it came from: the event's `service` must
-equal the compose project of the container Docker reported, and a chain must
-stay in one container. An emitter's `service` is therefore its compose
-project name (`chorus`, `docint`, `nextext`, `translator`).
+### Source binding
+
+A hash chain proves that lines were not altered, not who wrote them: any
+container could print a complete, internally consistent chain in another
+service's name. So before any chain check the verifier binds every event to
+where it came from. The event's `service` must equal, ignoring case, the
+`compose_project` label of the line — Alloy sets that label from the Docker
+API, and a container cannot set it for itself. An event that does not match,
+or a line that arrived without the label, is a `foreign_source` problem and
+is kept out of the chains entirely. An emitter's `service` is therefore its
+compose project name (`chorus`, `docint`, `nextext`, `translator`).
+
+What source binding cannot cover: whoever has root on the host, or write
+access to the audit store itself, can still fabricate lines — with any label
+— for the current day, until that day's anchor is signed off the host.
+Anchors close that window (below).
+
+### Silent chains
 
 A chain that has written nothing for `AUDIT_SILENCE_S` seconds (default 300,
 five heartbeats) without a `shutdown`, while other chains went on, is
 reported once as `unterminated` and then counted as closed. A crashed process
 therefore yields one finding; an outage of the collector or the store, which
 silences every chain at once, yields none.
+
+### Problem kinds
 
 | Kind | Meaning |
 |---|---|
@@ -116,7 +132,7 @@ silences every chain at once, yields none.
 | `seq_repeat` | A sequence number appears twice with different content |
 | `no_start` | A chain appears mid-way without its start |
 | `schema` | A marked line is not a well-formed event |
-| `source_mismatch` | An event names another service than its container's project, or a chain moves between containers |
+| `foreign_source` | An event names another service than the compose project it was sent from, or arrived without one; it is not chain-checked |
 | `unterminated` | A chain stopped without a shutdown event |
 
 Problems go to the verifier's log as kind, service, instance and sequence
@@ -189,10 +205,11 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
 
 ## Limits
 
-- **Whoever controls the host or the store** can still change or remove
-  lines and recompute their chains, up to the last anchor that is signed and
-  kept off the host. Anchors make such changes detectable afterwards; they do
-  not prevent them. Take them every day.
+- **Whoever has root on the host or write access to the store** can still
+  fabricate, change or remove lines — chains and labels included — for the
+  current day, until that day's anchor is signed and kept off the host.
+  Anchors make such changes detectable afterwards; they do not prevent them.
+  Take them every day.
 - **The gateway and Open WebUI are not chained.** For their lines the anchors
   are the only integrity control.
 - **Late lines.** Loki answers queries about the last three hours from
