@@ -131,6 +131,24 @@ API, which a container cannot set for itself:
   otherwise any container could print a complete, internally consistent
   chain in another service's name. An emitter's `service` is therefore its
   compose project name (`chorus`, `docint`, `nextext`, `translator`).
+- **A chain must come from a listed emitter.** The line's `compose_project`
+  and `compose_service` must be, ignoring case, one of the federation's
+  emitters; any other line is an `unlisted_source` problem. Without this, a
+  sibling container of an emitter — an app's frontend next to its backend —
+  could print a complete chain in the project's name. The list is
+  `DEFAULT_EMITTERS` in `audit/verifier.py`:
+
+  | Project | Service |
+  |---|---|
+  | `chorus`, `docint`, `nextext`, `translator` | `backend` |
+  | `vllm-service` | `router` |
+  | `edge-plane` | `auth-audit` |
+
+  `AUDIT_EMITTERS` in `.env` replaces it — comma-separated
+  `project/service` pairs, e.g. `chorus/backend,docint/backend`; `*` turns
+  the check off, and an entry that is not `project/service` stops the
+  verifier. A new emitter, or a renamed compose project or service, needs
+  its pair added in the same change, or its chains are reported.
 - **A chain is bound to the container of its start.** The emitter's first
   event, its `lifecycle` start at sequence 0, carries a random instance id
   that exists nowhere before it, so no other container can print a line of
@@ -156,8 +174,8 @@ per additional container and run, naming the containers. A start event that
 arrives after other lines of its chain cannot be genuine: it binds nothing
 and is checked with the rest.
 
-`foreign_source` and `source_mismatch` lines are reported and kept out of
-the chains; every other line is chain-checked. The running verifier reports
+`foreign_source`, `unlisted_source` and `source_mismatch` lines are
+reported and kept out of the chains; every other line is chain-checked. The running verifier reports
 or checks each line once, however often it reads it. Within a chain, the
 audit library also sets aside an event that names another service than the
 chain (`service_mismatch`).
@@ -192,6 +210,7 @@ is `after_shutdown`.
 | `after_shutdown` | An event follows its chain's shutdown event, after which a process writes nothing; it is left out of the chain |
 | `schema` | A marked line is not a well-formed event |
 | `foreign_source` | An event names another service than the compose project it was sent from, or arrived without one; it is not chain-checked |
+| `unlisted_source` | A chained line from a container that is not a listed emitter (`AUDIT_EMITTERS`), or without a `compose_service` label; it is not chain-checked |
 | `source_mismatch` | A line for a chain bound to another container; it is not chain-checked |
 | `ambiguous_source` | An unbound chain (its start not met first) had lines from more than one container in one run; reported once per additional container, and every line is still chain-checked |
 | `unterminated` | A chain stopped without a shutdown event |
@@ -278,9 +297,11 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
   Take them every day.
 - **The gateway and Open WebUI are not chained.** For their lines the anchors
   are the only integrity control.
-- **New chains are bound to a project, not a container.** Any container of
-  a project can start chains of its own in that project's name; the
-  container binding protects chains that already exist. A chain whose start
+- **New chains are bound to a listed service, not a container.** Any
+  container of a listed emitter service — a second replica, or a one-off
+  container of that service started on the host — can start chains of its
+  own in its project's name; the container binding protects chains that
+  already exist. A chain whose start
   the verifier did not meet first — already running when a range is checked
   from scratch (`make audit-verify`), when the verifier first starts, or
   after it lost its state — is never bound; `audit_chains_unbound` shows how

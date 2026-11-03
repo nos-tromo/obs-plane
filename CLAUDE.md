@@ -95,7 +95,10 @@ edge-secret check).
   `loki.process "lane"` in `alloy/config.alloy`, marks them
   (`lane="audit"`); the audit pipeline keeps only marked lines, the ops
   pipeline drops them before redacting. Chained lines (`"stream":"audit"`)
-  are marked from any container (the verifier binds them to their source);
+  are marked from any container (the verifier binds them to their source,
+  and accepts them only from the emitters `DEFAULT_EMITTERS` in
+  `audit/verifier.py` lists — `AUDIT_EMITTERS` replaces it; renaming an
+  emitter's compose project or service needs its pair changed with it);
   the gateway's and Open WebUI's markers only from their own containers —
   `edge-plane`/`caddy` and `open-webui-service`/`open-webui`, a cross-repo
   contract: renaming either compose project or service needs the selector

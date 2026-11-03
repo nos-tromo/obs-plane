@@ -488,6 +488,7 @@ services:
       AUDIT_STATE_DIR: /state
       AUDIT_VERIFY_INTERVAL: ${AUDIT_VERIFY_INTERVAL:-300}
       AUDIT_SILENCE_S: ${AUDIT_SILENCE_S:-300}
+      AUDIT_EMITTERS: ${AUDIT_EMITTERS:-}
       AUDIT_RETENTION: ${AUDIT_RETENTION:-8760h}
     volumes:
       - ../audit:/app:ro
