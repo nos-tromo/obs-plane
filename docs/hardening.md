@@ -1,6 +1,6 @@
 # Container hardening and residual findings
 
-How obs-plane's twelve containers are constrained, and the two privilege
+How obs-plane's fifteen containers are constrained, and the two privilege
 trade-offs that were made deliberately rather than overlooked. The
 governing decision is deploy ADR 0001,
 [0001-container-engine-docker.md](../../deploy/docs/decisions/0001-container-engine-docker.md),
@@ -8,11 +8,17 @@ which also defines the reversal triggers referenced below.
 
 ## Baseline
 
-Eleven of the twelve services take the `x-hardened` anchor —
+Fourteen of the fifteen services take the `x-hardened` anchor —
 `no-new-privileges` and `cap_drop: ALL`. `cadvisor` is the exception and
-takes neither (see below). Six of the eleven — `socket-proxy`,
-`node-exporter`, `blackbox-exporter`, `dcgm-exporter`, `loki-audit` and
-`audit-verifier` — additionally run read-only. Alloy no longer mounts the
+takes neither (see below). Nine of the fourteen — `socket-proxy`,
+`node-exporter`, `blackbox-exporter`, `dcgm-exporter`, `loki-audit`,
+`audit-verifier`, and the three nginx sidecars `grafana-guard`,
+`grafana-audit-guard` and `loki-audit-read` — additionally run read-only.
+The nginx sidecars run as the image's unprivileged user (uid 101) with
+only `/tmp` and their rendered config directory as tmpfs, the same shape
+as open-webui-service's edge guard; the two guards share their Grafana's
+network namespace, so each Grafana listens on loopback only
+([grafana-access.md](grafana-access.md#the-edge-guards)). Alloy no longer mounts the
 Docker socket — it reaches the API through `socket-proxy`, which enables
 only the read-only endpoints Alloy needs and rejects everything else (403),
 and it runs as its internal uid 473 (`make volumes` chowns `alloy-data`

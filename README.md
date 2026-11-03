@@ -12,12 +12,13 @@ and the audit-trail viewer.
 
 ## What lives here
 
-Twelve services, all lightweight next to the inference stack.
+Fifteen services, all lightweight next to the inference stack.
 
 | Service | Role | Network membership |
 |---|---|---|
 | `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
-| `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
+| `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only. Listens on loopback only, behind `grafana-guard` | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
+| `grafana-guard` | nginx in `grafana`'s network namespace, answering on `:3000`: passes the gateway's identity headers on only with `GRAFANA_EDGE_SECRET` (unset: as before) | shares `grafana`'s |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
 | `socket-proxy` | Restricted read-only gateway to the Docker API for Alloy (only `GET /containers`, `/networks`, `/events`, `/_ping` enabled; every mutating/sensitive endpoint denied) | project-internal only; the sole Alloy-path holder of `/var/run/docker.sock` (ro) |
 | `alloy` | Log collector: Docker-API discovery of every container's logs → Loki, with query-string values redacted on the way (`?q=<redacted>`); audit records go unredacted to `loki-audit` instead. Log-tail positions persisted to `alloy-data` (prevents duplicate/lost lines on recreate); runs as its internal uid 473 | project-internal + `audit`; reaches the Docker API via `socket-proxy:2375` — no socket mount |
@@ -25,9 +26,11 @@ Twelve services, all lightweight next to the inference stack.
 | `cadvisor` | Per-container metrics for every compose project on the host | internal (default) network |
 | `blackbox-exporter` | HTTP probes of federation endpoints | project-internal + `inference-net` + `data-net` |
 | `dcgm-exporter` | NVIDIA GPU metrics (utilization, VRAM, temperature, power, clocks, ECC); runs only when the `gpu` compose profile is enabled (`COMPOSE_PROFILES=gpu` in `.env`, GPU hosts with the NVIDIA container toolkit) | internal (default) network |
-| `loki-audit` | The audit trail's store: audit records only, retention `${AUDIT_RETENTION:-8760h}`, no deletion API | `audit` only |
-| `grafana-audit` | The audit-trail viewer: one datasource (`loki-audit`), one dashboard; readers sign in as Viewers | `audit` + `edge-net`, alias `grafana-audit` (served at `/audit/` behind the edge gateway) |
-| `audit-verifier` | Re-checks the trail's hash chains every `${AUDIT_VERIFY_INTERVAL:-300}` s and exports the result as metrics; runs the `make audit-*` one-shots | project-internal + `audit` |
+| `loki-audit` | The audit trail's store: audit records only, retention `${AUDIT_RETENTION:-8760h}`, no deletion API; written only by `alloy` | `audit` only |
+| `loki-audit-read` | nginx in front of `loki-audit` for its readers: `GET` on Loki's read API, 403 for everything else | `audit` + `audit-read` |
+| `grafana-audit` | The audit-trail viewer: one datasource (the store, through `loki-audit-read`), one dashboard; readers sign in as Viewers; no local admin. Listens on loopback only, behind `grafana-audit-guard` | `audit-read` + `edge-net`, alias `grafana-audit` (served at `/audit/` behind the edge gateway) |
+| `grafana-audit-guard` | nginx in `grafana-audit`'s network namespace, answering on `:3000`: 403 for every request without `AUDIT_EDGE_SECRET` | shares `grafana-audit`'s |
+| `audit-verifier` | Re-checks the trail's hash chains every `${AUDIT_VERIFY_INTERVAL:-300}` s, through `loki-audit-read`, and exports the result as metrics; runs the `make audit-*` one-shots | project-internal + `audit-read` |
 
 `prometheus` and `blackbox-exporter` join `inference-net` and `data-net`
 (to reach scrape/probe targets by alias); `grafana` and `grafana-audit`
@@ -35,16 +38,19 @@ join `edge-net` — the rest stay on the project-internal networks. On the
 first two seams obs-plane is a read-only consumer that claims no alias. On
 `edge-net` it publishes two: `grafana` and `grafana-audit`, which
 edge-plane's Caddy proxies `/grafana/*` and `/audit/*` to
-([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)). The audit store
-sits on a second, internal project network, `audit`, that only `alloy`,
-`grafana-audit` and `audit-verifier` join — the ops `grafana` cannot reach
-it.
+([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)) together with
+each one's edge secret; the guards in front of the two Grafanas check it
+([grafana-access.md](docs/grafana-access.md#the-edge-guards)). The audit
+store has two internal project networks of its own: `audit` (the store,
+its only writer `alloy`, and `loki-audit-read`) and `audit-read`
+(`loki-audit-read` and the two readers, `grafana-audit` and
+`audit-verifier`). The ops `grafana` is on neither.
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD and AUDIT_GRAFANA_ADMIN_PASSWORD at minimum
+$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD and AUDIT_EDGE_SECRET at minimum
 
 make network                  # create the external inference-net + data-net + edge-net (idempotent)
 make volumes                  # create the external obs + audit volumes (idempotent)
@@ -88,9 +94,11 @@ On production Grafana is reached through the edge gateway at
 `https://${EDGE_HOST}/grafana/`, which authenticates the request and
 auto-logs-in the user. Unlike every other routed app, `/grafana` is
 **restricted to Authelia's `admins` group** — that gate lives in
-edge-plane's `authelia/configuration.yml`, not here. See
+edge-plane's `authelia/configuration.yml`, not here. Grafana itself
+listens on loopback only; `grafana-guard` in front of it passes the
+gateway's identity header on only with `GRAFANA_EDGE_SECRET`. See
 [grafana-access.md](docs/grafana-access.md) for the trusted-header
-contract and the dev-overlay / SSH-tunnel fallbacks.
+contract, the edge guards and the dev-overlay / SSH-tunnel fallbacks.
 
 ## Audit trail
 
@@ -99,8 +107,11 @@ gateway's access log and Open WebUI's audit log — bypass the operational
 Loki: Alloy routes them, unredacted, to `loki-audit`, which keeps them for
 `AUDIT_RETENTION` (default one year) and offers no way to delete lines.
 `grafana-audit` shows them at `https://${EDGE_HOST}/audit/` to the
-gateway's `audit` group only; ops admins see the verifier's metrics and
-alerts, never the records.
+gateway's `audit` group only — its guard refuses anything that does not
+carry the gateway's `AUDIT_EDGE_SECRET` — and reads the store through
+`loki-audit-read`, which allows reads and nothing else. Only `alloy`
+writes to the store. Ops admins see the verifier's metrics and alerts,
+never the records.
 
 ```bash
 make audit-verify FROM=2026-01-01 TO=2026-02-01   # check the hash chains of a range
@@ -129,8 +140,8 @@ only), `audit` (`AuditChainProblem`, `AuditVerifierStale`,
 
 ## Container hardening
 
-Eleven of the twelve services run with `no-new-privileges` and
-`cap_drop: ALL`. The twelfth, **`cadvisor`, takes neither and runs
+Fourteen of the fifteen services run with `no-new-privileges` and
+`cap_drop: ALL`. The fifteenth, **`cadvisor`, takes neither and runs
 `privileged: true`** — an accepted residual finding, traded for
 federation-wide container metrics. Baseline and both trade-offs:
 [hardening.md](docs/hardening.md#residual-finding-cadvisor-runs-privileged);

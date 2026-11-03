@@ -34,7 +34,9 @@ metrics and collects logs from the rest of the host. It also holds the
 federation's **audit lane** (`docs/audit.md`, deploy ADR 0003): a second
 Loki (`loki-audit`), a second Grafana (`grafana-audit`) and
 `audit-verifier`, which re-checks the hash chains of the audit records
-Alloy routes there.
+Alloy routes there. Three nginx sidecars (`nginx/`) guard the edges: one in
+front of each Grafana (`grafana-guard`, `grafana-audit-guard`) and a
+read-only proxy in front of the audit store (`loki-audit-read`).
 
 It joins **all three** shared external networks. On `inference-net` and
 `data-net` it is a pure consumer — it scrapes and probes targets by
@@ -42,8 +44,10 @@ alias and claims no alias of its own. On `edge-net` it is not: `grafana`
 attaches there with the alias `grafana`, which edge-plane's Caddy
 proxies `/grafana/*` to (`../edge-plane/caddy/Caddyfile`), and
 `grafana-audit` with the alias `grafana-audit` for `/audit/*`, so both
-aliases are cross-repo contracts. obs-plane needed no member-repo changes to
-stand up, but the coverage it has today does depend on member-side
+aliases are cross-repo contracts — and so is the `X-Edge-Secret` header
+the gateway sends to each (`GRAFANA_EDGE_SECRET`, `AUDIT_EDGE_SECRET`),
+which the nginx guard answering on that alias checks. obs-plane needed no
+member-repo changes to stand up, but the coverage it has today does depend on member-side
 endpoints (`prometheus-fastapi-instrumentator` in the four apps,
 LiteLLM's prometheus callback in vllm-service) and on edge-plane's
 `/grafana` route. For how this tier slots into the wider workspace
@@ -56,8 +60,9 @@ the vendored `audit_event.py`, with a pytest suite in `audit/tests/` — no
 venv, no `pyproject.toml`; CI runs it with `uv run --no-project`. The rest
 of the repo is a `Makefile`, two compose files under `docker/`, service
 configs under `prometheus/`, `loki/`, `alloy/`, `blackbox/`, `dcgm/`,
-`grafana/`, `grafana-audit/`, and scripts under `scripts/` (airgap bundler,
-anchor/export signing, the Alloy lane check).
+`grafana/`, `grafana-audit/`, `nginx/`, and scripts under `scripts/`
+(airgap bundler, anchor/export signing, the Alloy lane check, the guards'
+edge-secret check).
 
 ## Load-bearing invariants
 
@@ -92,11 +97,28 @@ anchor/export signing, the Alloy lane check).
   pipeline drops them before redacting. `scripts/check_alloy_lanes.sh`
   (CI) runs the real config on `alloy/lanes-test/` fixtures; regenerate
   `expected.txt` with `--update` only for an intended routing change, and
-  read the diff. `loki-audit` and `grafana-audit` logs are dropped from both
-  lanes (their query logs carry reviewers' search terms).
-- **`loki-audit` is reachable only on the internal `audit` network**
-  (alloy, grafana-audit, audit-verifier). Never put the ops `grafana` or
-  `prometheus` on it, and never give the ops `grafana` a datasource for it.
+  read the diff. The logs of `loki-audit`, `loki-audit-read`,
+  `grafana-audit` and `grafana-audit-guard` are dropped from both lanes
+  (they can carry reviewers' search terms).
+- **Only alloy writes to `loki-audit`; readers go through
+  `loki-audit-read`.** The store has no authentication, so it sits on the
+  internal `audit` network with just `alloy` and `loki-audit-read`; the
+  readers (`grafana-audit`, `audit-verifier`) sit on the internal
+  `audit-read` network with just the proxy, which allows `GET`/`HEAD` on
+  Loki's read API and answers 403 to everything else
+  (`nginx/loki-audit-read.conf.template`). Never put a reader, the ops
+  `grafana` or `prometheus` on `audit`, never point a datasource or
+  `AUDIT_LOKI_URL` at `loki-audit` directly, and never add a write or admin
+  endpoint to the proxy's allowlist.
+- **Both Grafanas listen on `127.0.0.1:3001` only, behind a guard.** An
+  nginx sidecar with `network_mode: service:<grafana>` owns `:3000` and
+  checks `X-Edge-Secret`: `grafana-audit-guard` fail-closed (403,
+  `AUDIT_EDGE_SECRET` required), `grafana-guard` with open-webui-service's
+  legacy semantics (`GRAFANA_EDGE_SECRET` optional; mismatch drops the
+  identity headers). Each Grafana has `GF_AUTH_PROXY_WHITELIST=127.0.0.1`.
+  `grafana-audit` has no local admin, no login form and no basic auth.
+  `scripts/edge_secret_check.sh` refuses a secret under 32 characters or
+  with characters outside `A–Z a–z 0–9 . _ ~ + / = -` before nginx starts.
 - **`audit/audit_event.py` is vendored verbatim** from `nos-tromo/.github`
   (`configs/audit/`); never edit it here. The hub's `validate_audit_lib.py`
   drift-checks every `audit_event.py` in the repo, so no other file may
@@ -136,9 +158,11 @@ target.
 `grafana:3000/api/health` over the project-internal network, then the
 Prometheus query API for `up == 0` — it fails, naming the jobs, if any
 scrape target is down. The `dcgm` job is excluded from that check unless
-`.env` enables the `gpu` profile. `grafana-audit` and `loki-audit` are
-checked from inside `grafana-audit` instead: the audit store is on the
-`audit` network, which prometheus does not join.
+`.env` enables the `gpu` profile. The `grafana` check passes through
+`grafana-guard`. The audit side is checked from inside `grafana-audit`
+instead (prometheus is on neither audit network): Grafana on
+`127.0.0.1:3001`, the store through `loki-audit-read:3100/ready`, and
+`grafana-audit-guard`, which must answer 403 without the secret.
 
 Config-validation one-liners run in CI (`validate-configs` job) against
 the exact pinned images, and are safe to run locally the same way:
@@ -176,13 +200,23 @@ uv run --no-project --python 3.12 --with pytest python -m pytest audit/tests -q
 docker run --rm -v "$PWD/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro" --entrypoint /bin/blackbox_exporter \
   docker.io/prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc \
   --config.file=/etc/blackbox/blackbox.yml --config.check
+
+# the Grafana guards and loki-audit-read, rendered as compose runs them
+for t in grafana-guard grafana-audit-guard loki-audit-read; do
+  docker run --rm --read-only --tmpfs /tmp --tmpfs /etc/nginx/conf.d:mode=1777 \
+    -v "$PWD/nginx/$t.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+    -v "$PWD/scripts/edge_secret_check.sh:/docker-entrypoint.d/05-edge-secret-check.sh:ro" \
+    -e EDGE_SECRET=0123456789abcdef0123456789abcdef -e EDGE_SECRET_REQUIRED=1 \
+    docker.io/nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e \
+    nginx -t
+done
 ```
 
 `docker compose config` is validated the same way, seeded from
 `.env.example` (the shared `infra-validation` reusable workflow's
 compose-config sub-job only stubs `NEO4J_PASSWORD`/`OPENAI_API_KEY`, not
-this repo's required `GRAFANA_ADMIN_PASSWORD` and
-`AUDIT_GRAFANA_ADMIN_PASSWORD`, so obs-plane validates compose itself in
+this repo's required `GRAFANA_ADMIN_PASSWORD` and `AUDIT_EDGE_SECRET`,
+so obs-plane validates compose itself in
 `validate-configs` rather than via that shared job).
 
 Loki 3.7.4 behaviours the audit lane works around:

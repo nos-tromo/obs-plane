@@ -94,10 +94,13 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   [hardening.md](hardening.md#dcgm-exporter-is-not-a-second-exception).
 - **The audit store's own internals** — `loki-audit` is not scraped (it
   sits on the internal `audit` network, which prometheus does not join),
-  and its and `grafana-audit`'s logs are collected by neither lane, since
-  their query logs name what reviewers searched for. Both stay on the host
-  (`make logs S=loki-audit`); `make health` checks their readiness, and the
-  verifier's alerts fire when the store stops answering.
+  and the logs of `loki-audit`, `loki-audit-read`, `grafana-audit` and
+  `grafana-audit-guard` are collected by neither lane, since they can name
+  what reviewers searched for. They stay on the host
+  (`make logs S=loki-audit`); `make health` checks readiness (the store
+  through `loki-audit-read`, and that the guard refuses requests without the
+  edge secret), and the verifier's alerts fire when the store stops
+  answering.
 
 ## When a target is down by design
 

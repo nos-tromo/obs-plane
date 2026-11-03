@@ -25,7 +25,8 @@ or that arrived without the label, is a ``foreign_source`` problem and is
 kept out of the chains. Problems are reported by kind, service, instance and
 sequence number, never with event content.
 
-Stdlib only; Python 3.12+. Reads loki-audit, never writes to it.
+Stdlib only; Python 3.12+. Reads loki-audit through its read-only proxy
+(loki-audit-read) and never writes to it.
 """
 
 from __future__ import annotations
@@ -318,7 +319,7 @@ class HttpLoki:
         """Remember where Loki is.
 
         Args:
-            base_url: Loki's base URL, e.g. ``http://loki-audit:3100``.
+            base_url: Loki's base URL, e.g. ``http://loki-audit-read:3100``.
             timeout_s: Timeout for each request.
         """
         self.base_url = base_url.rstrip("/")
@@ -1272,7 +1273,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         The exit code: ``0`` ok, ``1`` problems found, ``2`` usage or store error.
     """
     parser = argparse.ArgumentParser(prog="verifier.py", description="Verify, export and anchor the audit lane.")
-    parser.add_argument("--loki", default=os.environ.get("AUDIT_LOKI_URL", "http://loki-audit:3100"))
+    parser.add_argument("--loki", default=os.environ.get("AUDIT_LOKI_URL", "http://loki-audit-read:3100"))
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="verify continuously and serve metrics")
     verify = commands.add_parser("verify", help="check a time range")

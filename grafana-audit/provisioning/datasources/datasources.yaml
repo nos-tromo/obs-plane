@@ -1,11 +1,12 @@
-# grafana-audit reads the audit store and nothing else.
+# grafana-audit reads the audit store, through its read-only proxy, and
+# nothing else.
 apiVersion: 1
 datasources:
   - name: Audit trail
     uid: loki-audit
     type: loki
     access: proxy
-    url: http://loki-audit:3100
+    url: http://loki-audit-read:3100
     isDefault: true
     editable: false
     jsonData:

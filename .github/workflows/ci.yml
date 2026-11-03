@@ -21,9 +21,9 @@ jobs:
     # compose-files is deliberately omitted: the reusable workflow's
     # compose-config sub-job stubs only NEO4J_PASSWORD/OPENAI_API_KEY (written
     # for data-plane/vllm-service), not this repo's required
-    # GRAFANA_ADMIN_PASSWORD, so it would fail `docker compose config` here.
-    # Compose validation is done ourselves below in validate-configs, seeded
-    # from .env.example (which does supply GRAFANA_ADMIN_PASSWORD).
+    # GRAFANA_ADMIN_PASSWORD and AUDIT_EDGE_SECRET, so it would fail
+    # `docker compose config` here. Compose validation is done ourselves below
+    # in validate-configs, seeded from .env.example (which supplies both).
     uses: nos-tromo/.github/.github/workflows/infra-validation.yml@44032ac756bd7700ba19fc65e141a5c2f8992416 # v3.20
     with:
       shell-scripts-glob: 'scripts/*.sh'
@@ -117,6 +117,19 @@ jobs:
           docker run --rm -v "$PWD/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro" --entrypoint /bin/blackbox_exporter \
             docker.io/prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc \
             --config.file=/etc/blackbox/blackbox.yml --config.check
+      - name: nginx guards and read proxy (nginx -t)
+        # The two Grafana guards and loki-audit-read, rendered by the pinned
+        # image's entrypoint as compose runs them; the guards with a dummy
+        # edge secret of the required shape, so the secret check runs too.
+        run: |
+          image=$(grep -o 'docker\.io/nginxinc/nginx-unprivileged:[^"]*' docker/compose.yaml | head -1)
+          for template in grafana-guard grafana-audit-guard loki-audit-read; do
+            docker run --rm --read-only --tmpfs /tmp --tmpfs /etc/nginx/conf.d:mode=1777 \
+              -v "$PWD/nginx/$template.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+              -v "$PWD/scripts/edge_secret_check.sh:/docker-entrypoint.d/05-edge-secret-check.sh:ro" \
+              -e EDGE_SECRET=0123456789abcdef0123456789abcdef -e EDGE_SECRET_REQUIRED=1 \
+              "$image" nginx -t
+          done
       - name: dashboards are valid JSON
         run: |
           for f in grafana/dashboards/*.json grafana-audit/dashboards/*.json; do python3 -m json.tool "$f" > /dev/null; done

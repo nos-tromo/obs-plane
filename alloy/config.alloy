@@ -40,14 +40,15 @@ loki.source.docker "containers" {
 // true, compact or spaced JSON) and the edge gateway's access log ("logger":
 // "http.log.access...").
 //
-// The audit store's own services go to neither lane: their query logs name
-// what reviewers searched for, so they stay on the host (`make logs`). Who
-// read the trail is recorded anyway, in the gateway's access log.
+// The audit store's own services (store, read proxy, Grafana and its guard)
+// go to neither lane: their logs can name what reviewers searched for, so
+// they stay on the host (`make logs`). Who read the trail is recorded anyway,
+// in the gateway's access log.
 loki.process "lane" {
   forward_to = [loki.process.audit.receiver, loki.process.redact.receiver]
 
   stage.match {
-    selector            = `{compose_project="obs-plane", compose_service=~"loki-audit|grafana-audit"}`
+    selector            = `{compose_project="obs-plane", compose_service=~"loki-audit|loki-audit-read|grafana-audit|grafana-audit-guard"}`
     action              = "drop"
     drop_counter_reason = "audit_store"
   }

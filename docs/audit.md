@@ -33,9 +33,10 @@ per line, in one place (`loki.process "lane"`):
   criteria in them are part of the record.
 - **Everything else** goes to the operational Loki, with query-string values
   redacted as before.
-- **The audit store's own logs** (`loki-audit`, `grafana-audit`) go to
-  neither: their query logs name what reviewers searched for. They stay in
-  the container logs on the host (`make logs S=loki-audit`).
+- **The audit store's own logs** (`loki-audit`, `loki-audit-read`,
+  `grafana-audit`, `grafana-audit-guard`) go to neither: they can name what
+  reviewers searched for. They stay in the container logs on the host
+  (`make logs S=loki-audit`).
 
 So the gateway's access log is no longer in the operational Loki; the
 gateway's other logs are. `scripts/check_alloy_lanes.sh` runs the real config
@@ -66,19 +67,28 @@ deliberate `docker volume rm`.
   public dashboards and the server-side query history are off, so neither
   trail data nor reviewers' searches are kept in Grafana beyond the store's
   retention.
+- **Only the gateway gets in.** `grafana-audit` listens on loopback only;
+  its guard, `grafana-audit-guard`, answers every request without the
+  gateway's `AUDIT_EDGE_SECRET` with 403, so no other container on
+  `edge-net` can pose as a reader. There is no local admin, no login form
+  and no basic auth: everything is provisioned from files
+  ([grafana-access.md](grafana-access.md#the-edge-guards)).
 - **Reading is recorded.** Every request to `/audit/` is in the gateway's
   access log, which is in the trail.
+- **Readers cannot write.** The store has no authentication of its own, so
+  nothing but the collector may reach it. It sits on the internal `audit`
+  network with `alloy`, its only writer, and `loki-audit-read`. Readers —
+  `grafana-audit` and `audit-verifier`, on the internal `audit-read`
+  network — get only that read proxy, which passes `GET`/`HEAD` on Loki's
+  read API (queries, labels, series, index stats and volume, detected
+  labels and fields, patterns, query formatting, build info, `/ready`) and
+  answers 403 to everything else: pushing lines, deleting, flushing, tailing,
+  admin endpoints. Grafana's datasource proxy therefore cannot be used to
+  write either.
 - **Operators** see the trail's health — the verifier's metrics and alerts,
   which carry counts and problem kinds only — never its lines. The ops
-  `grafana` has no datasource for the store and cannot reach it: `loki-audit`
-  sits on obs-plane's internal `audit` network, which only `alloy`,
-  `grafana-audit` and `audit-verifier` join.
-- **The local `admin` account** (`AUDIT_GRAFANA_ADMIN_PASSWORD`) uses the
-  login form behind the same `/audit/` route. `grafana-audit` has no port in
-  the dev overlay.
-
-`grafana-audit` trusts `X-Auth-User` the way the ops `grafana` does, so the
-[trusted-zone note](grafana-access.md#trusted-zone-note) applies to it too.
+  `grafana` has no datasource for the store and is on neither of its
+  networks.
 
 The dashboard's filters (service, user, action) are plain text matches on the
 line: `docint` matches both the service's own events and gateway lines for
@@ -90,8 +100,9 @@ line: `docint` matches both the service's own events and gateway lines for
 
 `audit-verifier` runs `audit/verifier.py` (stdlib Python in the pinned
 `python` image, read-only, as `nobody`). Every `AUDIT_VERIFY_INTERVAL`
-seconds (default 300) it reads the chained lines that arrived since its last
-run and checks them with the library's own `verify_chain`, continuing from
+seconds (default 300) it reads, through `loki-audit-read`, the chained lines
+that arrived since its last run and checks them with the library's own
+`verify_chain`, continuing from
 the chain heads it keeps in `audit-verifier-state`. On its first start it
 reads the whole retention window. Each run also re-reads the 15 minutes
 before its cursor, skipping events it has already checked, so lines that
@@ -112,7 +123,9 @@ compose project name (`chorus`, `docint`, `nextext`, `translator`).
 What source binding cannot cover: whoever has root on the host, or write
 access to the audit store itself, can still fabricate lines — with any label
 — for the current day, until that day's anchor is signed off the host.
-Anchors close that window (below).
+Anchors close that window (below). Nothing else can write to the store:
+only the collector reaches it, and readers get the read proxy
+([Access](#access)).
 
 ### Silent chains
 
@@ -216,10 +229,14 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
 - **Late lines.** Loki answers queries about the last three hours from
   memory and older ones from flushed chunks. A line that reaches the store
   more than three hours after it was written (after a long collector outage)
-  becomes visible about half an hour later, once flushed; the running
-  verifier, which re-reads only 15 minutes back, reports the chain as having
-  a gap. `make audit-verify` over that window afterwards shows whether the
-  lines are there.
+  becomes visible about half an hour later, once flushed. The running
+  verifier re-reads only 15 minutes back, so it misses such lines: a chain
+  it was following shows a gap, a chain that arrives entirely late is not
+  checked at all. `make audit-verify` over that window afterwards checks
+  them.
+- **The edge secret.** Whoever holds `AUDIT_EDGE_SECRET` — the gateway's
+  host and this host's operators — can pose as any reader. No other
+  container can.
 - **The last chain standing.** A chain is reported `unterminated` only once
   another chain has moved on; if the only emitting process dies, that waits
   until something else writes.

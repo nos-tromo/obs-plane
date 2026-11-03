@@ -118,16 +118,21 @@ ps:
 
 # Works against the portless production shape: every check runs from inside
 # the prometheus container (busybox wget), which shares the project-internal
-# network with grafana and loki. The audit store is reachable only on the
-# audit network, so its two checks run from grafana-audit (also busybox wget).
+# network with grafana (through grafana-guard) and loki. The audit side is
+# reachable only on its own networks, so its checks run from grafana-audit
+# (also busybox wget): Grafana itself on loopback, the store through
+# loki-audit-read, and the guard, which must refuse a request without the
+# gateway's secret.
 health:
 	@$(COMPOSE) ps --format '{{.Name}}\t{{.State}}\t{{.Status}}'
 	@echo
 	@$(COMPOSE) exec -T prometheus wget -qO- http://localhost:9090/-/ready && echo " prometheus: ready"
 	@$(COMPOSE) exec -T prometheus wget -qO- http://loki:3100/ready >/dev/null && echo "loki: ready"
 	@$(COMPOSE) exec -T prometheus wget -qO- http://grafana:3000/api/health >/dev/null && echo "grafana: ready"
-	@$(COMPOSE) exec -T grafana-audit wget -qO- http://localhost:3000/api/health >/dev/null && echo "grafana-audit: ready"
-	@$(COMPOSE) exec -T grafana-audit wget -qO- http://loki-audit:3100/ready >/dev/null && echo "loki-audit: ready"
+	@$(COMPOSE) exec -T grafana-audit wget -qO- http://127.0.0.1:3001/api/health >/dev/null && echo "grafana-audit: ready"
+	@$(COMPOSE) exec -T grafana-audit wget -qO- http://loki-audit-read:3100/ready >/dev/null && echo "loki-audit: ready (through loki-audit-read)"
+	@$(COMPOSE) exec -T grafana-audit sh -c 'wget -qO- http://127.0.0.1:3000/api/health 2>&1 | grep -q " 403 "' \
+	  && echo "grafana-audit-guard: refuses requests without the edge secret"
 	@# The dcgm job only has a live target when the `gpu` profile is on;
 	@# exclude it from the down-check otherwise (expected down).
 	@exclude='^$$'; grep -Eq '^COMPOSE_PROFILES=.*gpu' .env 2>/dev/null || exclude='^dcgm$$'; \

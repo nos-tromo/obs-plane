@@ -9,6 +9,8 @@ loki.source.file "fixtures" {
     {"__path__" = "/h/lines/owui.txt", "container" = "open-webui-service-open-webui-1", "compose_project" = "open-webui-service", "compose_service" = "open-webui"},
     {"__path__" = "/h/lines/loki-audit.txt", "container" = "obs-plane-loki-audit-1", "compose_project" = "obs-plane", "compose_service" = "loki-audit"},
     {"__path__" = "/h/lines/grafana-audit.txt", "container" = "obs-plane-grafana-audit-1", "compose_project" = "obs-plane", "compose_service" = "grafana-audit"},
+    {"__path__" = "/h/lines/grafana-audit-guard.txt", "container" = "obs-plane-grafana-audit-guard-1", "compose_project" = "obs-plane", "compose_service" = "grafana-audit-guard"},
+    {"__path__" = "/h/lines/loki-audit-read.txt", "container" = "obs-plane-loki-audit-read-1", "compose_project" = "obs-plane", "compose_service" = "loki-audit-read"},
     {"__path__" = "/h/lines/loki.txt", "container" = "obs-plane-loki-1", "compose_project" = "obs-plane", "compose_service" = "loki"},
     {"__path__" = "/h/lines/other.txt", "container" = "adhoc-1"},
   ]
