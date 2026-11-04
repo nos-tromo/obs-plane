@@ -21,10 +21,13 @@ A hash chain proves that lines were not altered, not who wrote them, so
 every chained line is first tied to where it came from, by the labels Alloy
 took from the Docker API, which a container cannot set for itself. An event
 whose ``service`` is not, ignoring case, the line's ``compose_project`` (or
-a line without that label) is a ``foreign_source`` problem. A chain is
+a line without that label) is a ``foreign_source`` problem, and one from a
+container that is not a listed emitter (``AUDIT_EMITTERS``: compose project
+and service) an ``unlisted_source`` problem. A chain is
 bound to the container of its start event when that start is the first line
 of the chain the verifier meets; a line for a bound chain from any other
-container is a ``source_mismatch`` problem. Both are kept out of the chains.
+container is a ``source_mismatch`` problem. All three are kept out of the
+chains.
 A chain whose start was not met first stays unbound: all its lines are
 checked, and lines from more than one container are also
 ``ambiguous_source``. Problems are reported by kind, service, instance and
@@ -76,10 +79,26 @@ PROBLEM_KINDS = (
     "after_shutdown",
     "unterminated",
     "foreign_source",
+    "unlisted_source",
     "source_mismatch",
     "ambiguous_source",
 )
 METRICS_PORT = 9105
+#: The containers whose hash-chained lines count, as (compose project, compose
+#: service): every emitter of the federation. ``AUDIT_EMITTERS`` replaces the
+#: list; ``*`` turns the check off. Any other container may print a complete,
+#: internally valid chain under its own project's name; only this list tells it
+#: apart from the project's real emitter.
+DEFAULT_EMITTERS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("chorus", "backend"),
+        ("docint", "backend"),
+        ("nextext", "backend"),
+        ("translator", "backend"),
+        ("vllm-service", "router"),
+        ("edge-plane", "auth-audit"),
+    }
+)
 #: Lines per query (Loki's default ``max_entries_limit_per_query``), and the
 #: most lines checked at once, which bounds memory however busy a day was.
 PAGE_LIMIT = 5000
@@ -695,6 +714,7 @@ def check_window(
     cap_ns: int,
     window_start_ns: int | None = None,
     run_sources: dict[str, dict[tuple[str, str], None]] | None = None,
+    emitters: frozenset[tuple[str, str]] | None = None,
 ) -> tuple[int, list[ChainProblem]]:
     """Check one window of chained lines and advance the chain heads.
 
@@ -702,6 +722,11 @@ def check_window(
     ``service`` is not, ignoring case, the line's ``compose_project``, or a
     line without that label, is a ``foreign_source`` problem — a container
     could otherwise print a complete fake chain in another service's name.
+    With ``emitters``, a line whose (``compose_project``,
+    ``compose_service``) is not listed, ignoring case, is an
+    ``unlisted_source`` problem — a sibling container of an emitter, such as
+    its frontend, could otherwise print a complete chain in the emitter's
+    name.
 
     A chain is bound to the (project, container) of its start event, the
     emitter's ``lifecycle``/``start`` at ``seq`` 0 on the genesis hash, when
@@ -745,6 +770,8 @@ def check_window(
         run_sources: The sources each unbound chain was seen from so far in
             this run; pass the same mapping to every window of a run. A
             fresh one when omitted.
+        emitters: The (project, service) pairs, lowercase, whose lines
+            count; ``None`` checks no list.
 
     Returns:
         The number of events checked and the problems found.
@@ -779,6 +806,11 @@ def check_window(
         if not project or (isinstance(service, str) and service.lower() != project.lower()):
             detail = f"claims service {_label(service)}, sent from project {_label(project or None)}"
             problems.append(_problem(project, fields, "foreign_source", detail))
+            continue
+        compose_service = labels.get("compose_service", "")
+        if emitters is not None and (project.lower(), compose_service.lower()) not in emitters:
+            detail = f"sent from {_label(project)}/{_label(compose_service or None)}, not a listed emitter"
+            problems.append(_problem(project, fields, "unlisted_source", detail))
             continue
         if isinstance(instance, str):
             bound = state.sources.get(instance)
@@ -874,6 +906,9 @@ class Config:
         chunk_ns: Slice length for long ranges.
         overlap_ns: How much each run re-reads before its cursor.
         lag_ns: How far behind the clock a run stops.
+        emitters: The (project, service) pairs whose chained lines count
+            (``AUDIT_EMITTERS``); ``None`` checks no list. :meth:`from_env`
+            defaults to :data:`DEFAULT_EMITTERS`.
     """
 
     interval_s: float = 300.0
@@ -883,6 +918,7 @@ class Config:
     chunk_ns: int = CHUNK_NS
     overlap_ns: int = OVERLAP_NS
     lag_ns: int = LAG_NS
+    emitters: frozenset[tuple[str, str]] | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Config:
@@ -905,7 +941,42 @@ class Config:
             interval_s=interval,
             silence_ns=int(silence * NS),
             retention_ns=parse_duration(env.get("AUDIT_RETENTION", "8760h")),
+            emitters=parse_emitters(env.get("AUDIT_EMITTERS")),
         )
+
+
+def parse_emitters(value: str | None) -> frozenset[tuple[str, str]] | None:
+    """Parse ``AUDIT_EMITTERS``: the containers whose chained lines count.
+
+    Args:
+        value: Comma-separated ``project/service`` pairs, e.g.
+            ``chorus/backend,docint/backend``, matched ignoring case. Unset or
+            blank means :data:`DEFAULT_EMITTERS`; ``*`` checks no list.
+
+    Returns:
+        The pairs, lowercase, or ``None`` for ``*``.
+
+    Raises:
+        ValueError: If an entry is not ``project/service``, or the list names
+            none: a typo must stop the verifier, not let every source pass.
+    """
+    if value is None or not value.strip():
+        return DEFAULT_EMITTERS
+    if value.strip() == "*":
+        return None
+    pairs: set[tuple[str, str]] = set()
+    for item in value.split(","):
+        entry = item.strip()
+        if not entry:
+            continue
+        project, sep, service = entry.partition("/")
+        project, service = project.strip(), service.strip()
+        if not sep or not project or not service or "/" in service:
+            raise ValueError(f"AUDIT_EMITTERS entry {safe(entry)!r} is not project/service")
+        pairs.add((project.lower(), service.lower()))
+    if not pairs:
+        raise ValueError("AUDIT_EMITTERS lists no emitter")
+    return frozenset(pairs)
 
 
 def run_once(
@@ -967,6 +1038,7 @@ def run_once(
                     cap_ns=now_ns,
                     window_start_ns=floor_ns if first_pass else None,
                     run_sources=run_sources,
+                    emitters=cfg.emitters,
                 )
                 state.events_verified += checked
                 record(problems)
@@ -1208,6 +1280,7 @@ def check_range(loki: LokiReader, cfg: Config, start_ns: int, end_ns: int) -> Ra
                 cap_ns=end_ns,
                 window_start_ns=start_ns,
                 run_sources=run_sources,
+                emitters=cfg.emitters,
             )
             events += checked
             problems.extend(found)
@@ -1363,6 +1436,7 @@ def cmd_anchor(loki: LokiReader, cfg: Config, out_dir: Path, day: date, *, now_n
                 cap_ns=end_ns,
                 window_start_ns=start_ns,
                 run_sources=run_sources,
+                emitters=cfg.emitters,
             )
             events += checked
             problems.extend(found)

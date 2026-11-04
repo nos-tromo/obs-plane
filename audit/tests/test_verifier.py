@@ -1112,3 +1112,63 @@ def test_command_line_errors_do_not_echo_the_reference(capsys: pytest.CaptureFix
     assert code == 2
     assert "--from is not an ISO 8601 date or timestamp" in err
     assert "secret-ref-123" not in err
+
+
+def test_audit_emitters_parse_strictly() -> None:
+    """Pairs are project/service, any case; blank is the federation list, * is no list, typos stop."""
+    assert v.parse_emitters(None) == v.DEFAULT_EMITTERS
+    assert v.parse_emitters("  ") == v.DEFAULT_EMITTERS
+    assert v.parse_emitters("*") is None
+    assert v.parse_emitters(" Chorus/Backend , docint/backend,") == {("chorus", "backend"), ("docint", "backend")}
+    for bad in ("chorus", "chorus/", "/backend", "chorus/backend/x", ",", " , "):
+        with pytest.raises(ValueError, match="AUDIT_EMITTERS"):
+            v.parse_emitters(bad)
+    assert v.Config.from_env({}).emitters == v.DEFAULT_EMITTERS
+    assert v.Config.from_env({"AUDIT_EMITTERS": "*"}).emitters is None
+    assert ("edge-plane", "auth-audit") in v.DEFAULT_EMITTERS
+    assert all(project == project.lower() and service == service.lower() for project, service in v.DEFAULT_EMITTERS)
+
+
+def test_lines_from_an_unlisted_container_stay_out_of_the_chains() -> None:
+    """With an emitter list, a sibling container's chain in the project's name is unlisted_source."""
+    loki = FakeLoki()
+    cfg = dataclasses.replace(CFG, emitters=v.parse_emitters("chorus/backend"))
+    genuine = Chain("chorus")
+    genuine.query(2)
+    genuine.close()
+    put(loki, genuine.take(), T0 + NS, NS, labels("chorus", "backend"))
+    other_case = Chain("chorus")  # listed, only the label case differs
+    other_case.close()
+    put(loki, other_case.take(), T0 + 10 * NS, NS, labels("Chorus", "BACKEND", "chorus-backend-2"))
+    impostor = Chain("chorus")  # complete and consistent, printed by the project's frontend
+    impostor.query(1)
+    impostor.close()
+    impostor_lines = impostor.take()
+    put(loki, impostor_lines, T0 + 20 * NS, NS, labels("chorus", "frontend"))
+    unlabelled = {name: value for name, value in labels("chorus", "backend").items() if name != "compose_service"}
+    stray = Chain("chorus")
+    stray.close()
+    stray_lines = stray.take()
+    put(loki, stray_lines, T0 + 40 * NS, NS, unlabelled)
+
+    result = v.check_range(loki, cfg, T0, T0 + 3600 * NS)
+
+    unlisted = [problem for problem in result.problems if problem.kind == "unlisted_source"]
+    assert len(unlisted) == len(impostor_lines) + len(stray_lines)
+    assert (unlisted[0].service, unlisted[0].instance, unlisted[0].detail) == (
+        "chorus",
+        impostor.instance,
+        "sent from chorus/frontend, not a listed emitter",
+    )
+    assert unlisted[-1].detail == "sent from chorus/?, not a listed emitter"
+    assert [problem for problem in result.problems if problem.kind != "unlisted_source"] == []
+    assert set(result.heads) == {genuine.instance, other_case.instance}
+
+    # The scheduled run applies the same list, and counts the kind for the alert.
+    state = v.State()
+    found = v.run_once(loki, state, cfg, now_ns=T0 + 100 * NS)
+    assert {problem.kind for problem in found} == {"unlisted_source"}
+    assert state.problems["unlisted_source"] == len(unlisted)
+
+    # Without a list (``*``), the same lines are checked like any other.
+    assert [p.kind for p in v.check_range(loki, CFG, T0, T0 + 3600 * NS).problems] == []
