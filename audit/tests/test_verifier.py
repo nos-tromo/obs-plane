@@ -1127,6 +1127,7 @@ def test_audit_emitters_parse_strictly() -> None:
     assert v.Config.from_env({"AUDIT_EMITTERS": "*"}).emitters is None
     assert ("edge-plane", "auth-audit") in v.DEFAULT_EMITTERS
     assert ("data-plane", "admin-audit") in v.DEFAULT_EMITTERS
+    assert ("open-webui-service", "retention") in v.DEFAULT_EMITTERS
     assert all(project == project.lower() and service == service.lower() for project, service in v.DEFAULT_EMITTERS)
 
 

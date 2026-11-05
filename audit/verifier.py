@@ -98,6 +98,7 @@ DEFAULT_EMITTERS: frozenset[tuple[str, str]] = frozenset(
         ("vllm-service", "router"),
         ("edge-plane", "auth-audit"),
         ("data-plane", "admin-audit"),
+        ("open-webui-service", "retention"),
     }
 )
 #: Lines per query (Loki's default ``max_entries_limit_per_query``), and the
