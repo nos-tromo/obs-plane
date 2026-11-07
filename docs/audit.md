@@ -130,7 +130,7 @@ API, which a container cannot set for itself:
   line that arrived without the label, is a `foreign_source` problem —
   otherwise any container could print a complete, internally consistent
   chain in another service's name. An emitter's `service` is therefore its
-  compose project name (`chorus`, `docint`, `nextext`, `translator`).
+  compose project name (`docint`, `nextext`, `translator`).
 - **A chain must come from a listed emitter.** The line's `compose_project`
   and `compose_service` must be, ignoring case, one of the federation's
   emitters; any other line is an `unlisted_source` problem. Without this, a
@@ -140,14 +140,14 @@ API, which a container cannot set for itself:
 
   | Project | Service |
   |---|---|
-  | `chorus`, `docint`, `nextext`, `translator` | `backend` |
+  | `docint`, `nextext`, `translator` | `backend` |
   | `vllm-service` | `router` |
   | `edge-plane` | `auth-audit` |
   | `data-plane` | `admin-audit` |
   | `open-webui-service` | `retention` |
 
   `AUDIT_EMITTERS` in `.env` replaces it — comma-separated
-  `project/service` pairs, e.g. `chorus/backend,docint/backend`; `*` turns
+  `project/service` pairs, e.g. `docint/backend,nextext/backend`; `*` turns
   the check off, and an entry that is not `project/service` stops the
   verifier. A new emitter, or a renamed compose project or service, needs
   its pair added in the same change, or its chains are reported.

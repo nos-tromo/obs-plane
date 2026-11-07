@@ -3,9 +3,9 @@ audit	audit	edge-plane-caddy-1	{"level":"info","ts":1762156800.123,"logger":"htt
 audit	audit	open-webui-service-open-webui-1	2026-11-03 07:00:00.000 | INFO     | open_webui.utils.audit:_log_audit_entry:358 -  - {"auditable":true,"id":"a1b2","user":{"id":"u-1","name":"jane.doe","email":"jane.doe@example.org","role":"user"},"audit_level":"METADATA","verb":"GET","request_uri":"http://open-webui:8080/api/v1/chats/?page=1","response_status_code":200}
 audit	audit	open-webui-service-open-webui-1	{"ts": "2026-11-03T07:00:01.000+00:00", "level": "info", "msg": "", "caller": "open_webui.utils.audit:_log_audit_entry:358", "extra": {"auditable": true, "id": "a1b3", "verb": "POST", "request_uri": "http://open-webui:8080/api/v1/chats/new?x=1"}}
 ops	-	adhoc-1	{"msg":"audit sweep finished","stream":"stdout","next":"/jobs?id=<redacted>"}
-ops	-	chorus-chorus-frontend-1	{"auditable": true, "user": {"name": "jane.doe"}, "verb": "GET", "request_uri": "http://chorus-frontend:8080/api/posts?author=<redacted>"}
 ops	-	docint-docint-backend-1	INFO:     10.0.0.7:41234 - "GET /api/search?q=<redacted>&collection=<redacted> HTTP/1.1" 200
 ops	-	docint-docint-backend-1	{"level":"info","ts":1762156900.0,"logger":"http.log.access.log0","msg":"handled request","request":{"method":"GET","uri":"/docint/api/documents?owner=<redacted>"},"user":"jane.doe","status":200}
+ops	-	docint-docint-frontend-1	{"auditable": true, "user": {"name": "jane.doe"}, "verb": "GET", "request_uri": "http://docint-frontend:8080/api/posts?author=<redacted>"}
 ops	-	edge-plane-caddy-1	{"level":"info","ts":1762156801.5,"logger":"tls","msg":"cleaning storage unit","storage":"FileStorage:/data/caddy"}
 ops	-	obs-plane-loki-1	level=info ts=2026-11-03T07:00:05Z caller=metrics.go:237 component=frontend org_id=fake query="{compose_project=\"docint\"}" status=200
 ops	-	open-webui-service-open-webui-1	2026-11-03 07:00:02.000 | INFO     | uvicorn.protocols.http.httptools_impl:send:476 - 10.0.0.9:0 - "GET /api/models?refresh=<redacted> HTTP/1.1" 200

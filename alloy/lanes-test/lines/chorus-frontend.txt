@@ -1,1 +1,0 @@
-{"auditable": true, "user": {"name": "jane.doe"}, "verb": "GET", "request_uri": "http://chorus-frontend:8080/api/posts?author=example"}

@@ -1,8 +1,6 @@
 # Scrape targets reachable with ZERO member-repo changes.
-# Not scrapeable in v1 (see README): Neo4j Community (no metrics endpoint).
-#
 # The `apps` job below scrapes the FastAPI backends, instrumented via
-# prometheus-fastapi-instrumentator (chorus#95, docint#341, Nextext#105,
+# prometheus-fastapi-instrumentator (docint#341, Nextext#105,
 # translator#71 — merged); targets are up once each app deploys an image
 # containing that change. See the job comment for network membership.
 #
@@ -58,17 +56,15 @@ scrape_configs:
       - targets: ["audit-verifier:9105"]
 
   # FastAPI app backends — instrumented via prometheus-fastapi-instrumentator
-  # (chorus#95, docint#341, Nextext#105, translator#71 — merged). Targets
+  # (docint#341, Nextext#105, translator#71 — merged). Targets
   # read down (`up == 0`) until each app deploys an image containing that
   # change. Network membership per app:
-  #   chorus-backend:8000     — data-net (also on inference-net)
   #   docint-backend:8000     — data-net (also on inference-net)
   #   nextext-backend:8000    — inference-net only
   #   translator-backend:8000 — inference-net only
   - job_name: apps
     static_configs:
       - targets:
-          - chorus-backend:8000
           - docint-backend:8000
           - nextext-backend:8000
           - translator-backend:8000
@@ -103,7 +99,6 @@ scrape_configs:
     static_configs:
       - targets:
           - http://vllm-router:4000/health/liveliness
-          - http://neo4j:7474
           - http://qdrant:6333/healthz
     relabel_configs:
       - source_labels: [__address__]
