@@ -83,8 +83,9 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
 
 - **Neo4j internal metrics** — Prometheus/CSV metrics are Enterprise-only;
   the federation runs Community. Coverage is cAdvisor + HTTP probe only.
-- **`clip`, `diarize`, `vad` vLLM backends** — expose no `/metrics`
-  endpoint at all; cAdvisor coverage only.
+- **`clip`, `diarize`, `vad`, `faces` backends** — first-party FastAPI
+  servers, not vLLM; they expose no `/metrics` endpoint at all; cAdvisor
+  coverage only.
 - **`gliner`** — Ray Serve, not `vllm serve`; whether it exposes a
   Prometheus endpoint is unconfirmed, so it stays unscraped pending
   investigation.

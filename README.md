@@ -83,7 +83,7 @@ scrape target reads down (expected; `make health` excludes it).
 - **obs-plane itself** — Prometheus, Loki and Alloy are scraped too.
 
 Not covered: Neo4j internal metrics (Enterprise-only; the federation runs
-Community), and the `clip`/`diarize`/`vad` backends and `gliner`, none of
+Community), and the `clip`/`diarize`/`vad`/`faces` backends and `gliner`, none of
 which expose a confirmed `/metrics`. See [coverage.md](docs/coverage.md)
 for the endpoints and networks behind each line, and
 [which targets are down by design](docs/coverage.md#when-a-target-is-down-by-design).
