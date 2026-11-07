@@ -12,7 +12,7 @@
     {
       "id": 1,
       "title": "Request rate by app",
-      "description": "sum by (instance) (rate(http_requests_total[5m])). Pending companion PRs chorus#95, docint#341, Nextext#105, translator#71 — metric names are prometheus-fastapi-instrumentator defaults and will be confirmed once an app PR merges.",
+      "description": "sum by (instance) (rate(http_requests_total[5m])). Pending companion PRs docint#341, Nextext#105, translator#71 — metric names are prometheus-fastapi-instrumentator defaults and will be confirmed once an app PR merges.",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
@@ -33,7 +33,7 @@
     {
       "id": 2,
       "title": "Error rate by app (5xx)",
-      "description": "sum by (instance) (rate(http_requests_total{status=~\"5..\"}[5m])). Pending companion PRs chorus#95, docint#341, Nextext#105, translator#71.",
+      "description": "sum by (instance) (rate(http_requests_total{status=~\"5..\"}[5m])). Pending companion PRs docint#341, Nextext#105, translator#71.",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
@@ -75,7 +75,7 @@
     {
       "id": 4,
       "title": "Top routes",
-      "description": "sum by (instance, handler) (rate(http_requests_total[5m])). Pending companion PRs chorus#95, docint#341, Nextext#105, translator#71.",
+      "description": "sum by (instance, handler) (rate(http_requests_total[5m])). Pending companion PRs docint#341, Nextext#105, translator#71.",
       "type": "table",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },

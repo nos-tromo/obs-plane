@@ -48,7 +48,7 @@ aliases are cross-repo contracts — and so is the `X-Edge-Secret` header
 the gateway sends to each (`GRAFANA_EDGE_SECRET`, `AUDIT_EDGE_SECRET`),
 which the nginx guard answering on that alias checks. obs-plane needed no
 member-repo changes to stand up, but the coverage it has today does depend on member-side
-endpoints (`prometheus-fastapi-instrumentator` in the four apps,
+endpoints (`prometheus-fastapi-instrumentator` in the three apps,
 LiteLLM's prometheus callback in vllm-service) and on edge-plane's
 `/grafana` route. For how this tier slots into the wider workspace
 (inference vs state vs apps vs observability, bring-up order), see the

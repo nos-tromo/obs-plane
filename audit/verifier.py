@@ -91,7 +91,6 @@ METRICS_PORT = 9105
 #: apart from the project's real emitter.
 DEFAULT_EMITTERS: frozenset[tuple[str, str]] = frozenset(
     {
-        ("chorus", "backend"),
         ("docint", "backend"),
         ("nextext", "backend"),
         ("translator", "backend"),
@@ -952,7 +951,7 @@ def parse_emitters(value: str | None) -> frozenset[tuple[str, str]] | None:
 
     Args:
         value: Comma-separated ``project/service`` pairs, e.g.
-            ``chorus/backend,docint/backend``, matched ignoring case. Unset or
+            ``docint/backend,nextext/backend``, matched ignoring case. Unset or
             blank means :data:`DEFAULT_EMITTERS`; ``*`` checks no list.
 
     Returns:
