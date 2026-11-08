@@ -18,8 +18,8 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
 - **Qdrant** — native `/metrics` on `qdrant:6333` over `data-net`
   (verified against v1.18.3).
 - **Black-box health** — blackbox-exporter HTTP probes of
-  `vllm-router:4000/health/liveliness` (`inference-net`), `neo4j:7474`
-  (`data-net`), `qdrant:6333/healthz` (`data-net`).
+  `vllm-router:4000/health/liveliness` (`inference-net`),
+  `qdrant:6333/healthz` (`data-net`).
 - **Logs of every container on the host** — Alloy Docker discovery →
   Loki, labeled by compose project + service. Query-string values are
   redacted before storage (`?entity_text=<redacted>`; parameter names are
@@ -63,26 +63,24 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   as every backend's `--api-key`, so it is deliberately not duplicated
   into this repo.
   Rendered on the `litellm.json` dashboard.
-- **FastAPI app metrics** — `chorus-backend:8000`, `docint-backend:8000`,
-  `nextext-backend:8000`, `translator-backend:8000` are configured as a
+- **FastAPI app metrics** — `docint-backend:8000`, `nextext-backend:8000`,
+  `translator-backend:8000` are configured as a
   Prometheus `apps` scrape job (`prometheus/prometheus.yml`), each exposing
   `prometheus-fastapi-instrumentator` defaults (`http_requests_total`,
   `http_request_duration_seconds` buckets; labeled `method`/`handler`
-  (route template)/`status`). All four apps register `GET /metrics` on
-  their FastAPI app; chorus and docint gate it behind `METRICS_ENABLED`
+  (route template)/`status`). All three apps register `GET /metrics` on
+  their FastAPI app; docint gates it behind `METRICS_ENABLED`
   (default `true`), so an `apps` target reading down on a member that is
   definitely deployed is worth checking against that variable. Nextext
   additionally exports job-outcome counters (`nextext_jobs_total`,
   `nextext_jobs_skipped_total`, `nextext_jobs_failed_total`) on the same
   endpoint; no dashboard here renders them yet.
-  `chorus-backend` and `docint-backend` resolve on
+  `docint-backend` resolves on
   `data-net` (also on `inference-net`); `nextext-backend` and
   `translator-backend` are `inference-net` only.
 
 ## Not available
 
-- **Neo4j internal metrics** — Prometheus/CSV metrics are Enterprise-only;
-  the federation runs Community. Coverage is cAdvisor + HTTP probe only.
 - **`clip`, `diarize`, `vad`, `faces` backends** — first-party FastAPI
   servers, not vLLM; they expose no `/metrics` endpoint at all; cAdvisor
   coverage only.

@@ -50,7 +50,7 @@ its only writer `alloy`, and `loki-audit-read`) and `audit-read`
 
 ```bash
 cp .env.example .env
-$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD and AUDIT_EDGE_SECRET at minimum
+$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD, AUDIT_EDGE_SECRET and EDGE_HOST
 
 make network                  # create the external inference-net + data-net + edge-net (idempotent)
 make volumes                  # create the external obs + audit volumes (idempotent)
@@ -74,16 +74,15 @@ scrape target reads down (expected; `make health` excludes it).
 - **Qdrant** — native `/metrics` on `qdrant:6333` over `data-net`.
 - **vLLM backends** — `chat`/`embed`/`rerank`/`asr` on `inference-net`.
 - **LiteLLM router** — per-model requests, latency including routing.
-- **FastAPI app backends** — chorus, docint, Nextext, translator.
+- **FastAPI app backends** — docint, Nextext, translator.
 - **NVIDIA GPUs** — dcgm-exporter, GPU hosts only (`gpu` profile).
-- **Black-box health** — router liveliness, `neo4j:7474`,
+- **Black-box health** — router liveliness,
   `qdrant:6333/healthz`.
 - **Logs of every container on the host** — Alloy discovery → Loki;
   audit records go to the audit trail instead (below).
 - **obs-plane itself** — Prometheus, Loki and Alloy are scraped too.
 
-Not covered: Neo4j internal metrics (Enterprise-only; the federation runs
-Community), and the `clip`/`diarize`/`vad`/`faces` backends and `gliner`, none of
+Not covered: the `clip`/`diarize`/`vad` /`faces` backends and `gliner`, none of
 which expose a confirmed `/metrics`. See [coverage.md](docs/coverage.md)
 for the endpoints and networks behind each line, and
 [which targets are down by design](docs/coverage.md#when-a-target-is-down-by-design).

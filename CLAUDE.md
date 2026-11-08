@@ -48,7 +48,7 @@ aliases are cross-repo contracts — and so is the `X-Edge-Secret` header
 the gateway sends to each (`GRAFANA_EDGE_SECRET`, `AUDIT_EDGE_SECRET`),
 which the nginx guard answering on that alias checks. obs-plane needed no
 member-repo changes to stand up, but the coverage it has today does depend on member-side
-endpoints (`prometheus-fastapi-instrumentator` in the four apps,
+endpoints (`prometheus-fastapi-instrumentator` in the three apps,
 LiteLLM's prometheus callback in vllm-service) and on edge-plane's
 `/grafana` route. For how this tier slots into the wider workspace
 (inference vs state vs apps vs observability, bring-up order), see the
@@ -223,11 +223,16 @@ done
 ```
 
 `docker compose config` is validated the same way, seeded from
-`.env.example` (the shared `infra-validation` reusable workflow's
+`.env.example` with its empty required values filled by synthetic
+CI-only ones (the shared `infra-validation` reusable workflow's
 compose-config sub-job only stubs `NEO4J_PASSWORD`/`OPENAI_API_KEY`, not
 this repo's required `GRAFANA_ADMIN_PASSWORD` and `AUDIT_EDGE_SECRET`,
 so obs-plane validates compose itself in
 `validate-configs` rather than via that shared job).
+
+`.env.example` follows deploy's shared format (deploy
+`docs/runbooks/env-sync.md`, For member authors); check with
+`python3 -B ../deploy/scripts/check_env_examples.py .`.
 
 Loki 3.7.4 behaviours the audit lane works around:
 

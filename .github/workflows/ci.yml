@@ -39,10 +39,28 @@ jobs:
         # so the profile-off runs alone would never parse that service block.
         run: |
           cp .env.example .env
+          # .env.example leaves the required values empty: fill them with
+          # synthetic CI-only ones.
+          for kv in GRAFANA_ADMIN_PASSWORD=ci-grafana-password \
+            AUDIT_EDGE_SECRET=ci-audit-edge-secret-0123456789abcdef \
+            EDGE_HOST=127.0.0.1; do
+            grep -q "^${kv%%=*}=$" .env
+            sed -i "s|^${kv%%=*}=$|$kv|" .env
+          done
           docker compose --env-file .env -f docker/compose.yaml config --quiet
           docker compose -f docker/compose.yaml -f docker/compose.override.yaml --env-file .env config --quiet
           docker compose --env-file .env --profile gpu -f docker/compose.yaml config --quiet
           docker compose --profile gpu -f docker/compose.yaml -f docker/compose.override.yaml --env-file .env config --quiet
+      - name: the required values are required
+        # .env.example leaves them empty on purpose: a copy of it must be
+        # refused, with the hint for the audit edge secret.
+        run: |
+          if docker compose --env-file .env.example -f docker/compose.yaml config --quiet 2> refused.txt; then
+            echo "compose accepted an .env.example with empty required values" >&2
+            exit 1
+          fi
+          cat refused.txt
+          grep -q 'must be set' refused.txt
       - name: promtool check config + rules
         run: |
           docker run --rm -v "$PWD/prometheus:/etc/prometheus:ro" --entrypoint promtool \
