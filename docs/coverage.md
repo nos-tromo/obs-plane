@@ -81,8 +81,9 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
 
 ## Not available
 
-- **`clip`, `diarize`, `vad` vLLM backends** — expose no `/metrics`
-  endpoint at all; cAdvisor coverage only.
+- **`clip`, `diarize`, `vad`, `faces` backends** — first-party FastAPI
+  servers, not vLLM; they expose no `/metrics` endpoint at all; cAdvisor
+  coverage only.
 - **`gliner`** — Ray Serve, not `vllm serve`; whether it exposes a
   Prometheus endpoint is unconfirmed, so it stays unscraped pending
   investigation.

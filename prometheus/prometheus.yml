@@ -7,8 +7,8 @@
 # The `vllm` job below targets chat/embed/rerank/asr by service name on
 # inference-net. This depends on nos-tromo/vllm-service#67 (unmerged) to
 # attach those backends to inference-net — until it merges these targets
-# are DOWN (expected). clip/diarize/vad expose no /metrics endpoint and
-# gliner (Ray Serve) is unconfirmed; all four stay unscraped (see README).
+# are DOWN (expected). clip/diarize/vad/faces expose no /metrics endpoint and
+# gliner (Ray Serve) is unconfirmed; all five stay unscraped (see README).
 #
 # The `dcgm` job below targets dcgm-exporter, which only runs when the `gpu`
 # compose profile is enabled (COMPOSE_PROFILES=gpu in .env, GPU hosts only).
