@@ -223,11 +223,16 @@ done
 ```
 
 `docker compose config` is validated the same way, seeded from
-`.env.example` (the shared `infra-validation` reusable workflow's
+`.env.example` with its empty required values filled by synthetic
+CI-only ones (the shared `infra-validation` reusable workflow's
 compose-config sub-job only stubs `NEO4J_PASSWORD`/`OPENAI_API_KEY`, not
 this repo's required `GRAFANA_ADMIN_PASSWORD` and `AUDIT_EDGE_SECRET`,
 so obs-plane validates compose itself in
 `validate-configs` rather than via that shared job).
+
+`.env.example` follows deploy's shared format (deploy
+`docs/runbooks/env-sync.md`, For member authors); check with
+`python3 -B ../deploy/scripts/check_env_examples.py .`.
 
 Loki 3.7.4 behaviours the audit lane works around:
 

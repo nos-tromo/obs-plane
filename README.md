@@ -50,7 +50,7 @@ its only writer `alloy`, and `loki-audit-read`) and `audit-read`
 
 ```bash
 cp .env.example .env
-$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD and AUDIT_EDGE_SECRET at minimum
+$EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD, AUDIT_EDGE_SECRET and EDGE_HOST
 
 make network                  # create the external inference-net + data-net + edge-net (idempotent)
 make volumes                  # create the external obs + audit volumes (idempotent)
