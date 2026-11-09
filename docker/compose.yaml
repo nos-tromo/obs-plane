@@ -456,7 +456,7 @@ services:
       - /tmp:size=16m
       - /etc/nginx/conf.d:size=1m,mode=1777
     environment:
-      EDGE_SECRET: ${AUDIT_EDGE_SECRET:?AUDIT_EDGE_SECRET must be set in .env (edge-plane's make secret)}
+      EDGE_SECRET: ${AUDIT_EDGE_SECRET:?AUDIT_EDGE_SECRET must be set in .env (openssl rand -hex 32; same value as edge-plane)}
       EDGE_SECRET_REQUIRED: "1"
     volumes:
       - ../nginx/grafana-audit-guard.conf.template:/etc/nginx/templates/default.conf.template:ro

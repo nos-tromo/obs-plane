@@ -3,7 +3,7 @@
 # image's entrypoint runs it with `set -e` before nginx starts, so a refusal
 # here stops the guard. EDGE_SECRET is the value the gateway sends as
 # X-Edge-Secret; EDGE_SECRET_REQUIRED=1 refuses to start without one. A set
-# secret must have at least 32 characters (edge-plane's `make secret` mints
+# secret must have at least 32 characters (`openssl rand -hex 32` gives
 # 64) and only characters that cannot change the meaning of the nginx
 # config it is written into. The secret itself is never printed.
 set -eu
