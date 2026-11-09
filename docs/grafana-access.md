@@ -80,7 +80,7 @@ the gateway adds, whether identity headers get through:
 | `grafana-guard` | `GRAFANA_EDGE_SECRET`, optional | The identity headers are dropped, so Grafana shows its login form, the admin's fallback. Unset, every request passes them on, as before the guard. Logs path, never query string |
 
 Each secret must equal the variable of the same name in edge-plane's `.env`
-(generate it there with `make secret`); the guard refuses to start with a
+(generate it with `openssl rand -hex 32`); the guard refuses to start with a
 value shorter than 32 characters or with characters outside
 `A–Z a–z 0–9 . _ ~ + / = -`. Both guards strip `X-Edge-Secret` before
 Grafana sees it and pass Grafana Live's websocket upgrade through. Configs:
