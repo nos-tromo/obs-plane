@@ -142,7 +142,7 @@ API, which a container cannot set for itself:
   |---|---|
   | `docint`, `nextext`, `translator` | `backend` |
   | `vllm-service` | `router` |
-  | `edge-plane` | `auth-audit` |
+  | `edge-plane` | `auth-audit`, `auth-retention` |
   | `data-plane` | `admin-audit` |
   | `open-webui-service` | `retention` |
 
