@@ -1132,6 +1132,11 @@ def test_audit_emitters_parse_strictly() -> None:
     assert all(project == project.lower() and service == service.lower() for project, service in v.DEFAULT_EMITTERS)
 
 
+def test_workbench_api_is_a_listed_emitter() -> None:
+    """workbench's api is a federation emitter: its chains are not unlisted_source."""
+    assert ("workbench", "api") in v.DEFAULT_EMITTERS
+
+
 def test_lines_from_an_unlisted_container_stay_out_of_the_chains() -> None:
     """With an emitter list, a sibling container's chain in the project's name is unlisted_source."""
     loki = FakeLoki()

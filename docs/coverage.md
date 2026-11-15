@@ -78,9 +78,27 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   `docint-backend` resolves on
   `data-net` (also on `inference-net`); `nextext-backend` and
   `translator-backend` are `inference-net` only.
+- **workbench** — `workbench-api:8000/metrics` (job `workbench`) over
+  `workbench-net`, which prometheus joins read-only like the other seams,
+  claiming no alias. No key is needed: the api's key gate exempts `/metrics`
+  and `/healthz`, and the page holds counts only, labelled by tool or by
+  the reason a job was refused — never a user, chat, file name or content.
+  It exports the queue's length and wait, job duration by tool, refused
+  jobs by reason, the data volume's disk use and capacity, and the file
+  count. Two alerts in the `workbench` rule group:
+  `WorkbenchDiskHigh` (volume above 80% for 15 minutes; the disk gauges are
+  measured when the api starts and by each retention sweep, so they lag the
+  filesystem) and `WorkbenchRefusing` (refusals at a non-zero rate for 15
+  minutes). Its audit chain, emitter `workbench` / `api`, is checked by the
+  verifier like the others ([audit.md](audit.md#source-binding)). The
+  executor has no network and no metrics; cAdvisor sees it as a container.
+  No dashboard here renders these metrics yet.
 
 ## Not available
 
+- **What workbench's jobs processed** — inputs, outputs and file names are in
+  no metric, by design; the scrape carries counts and durations. What is
+  recorded of them is the audit chain, by reference.
 - **`clip`, `diarize`, `vad`, `faces` backends** — first-party FastAPI
   servers, not vLLM; they expose no `/metrics` endpoint at all; cAdvisor
   coverage only.
@@ -109,6 +127,9 @@ knowing which ones are expected to be:
 - **`dcgm`** — `dcgm-exporter` runs only under the `gpu` compose profile.
   With the profile off the target reads down, and `make health` excludes
   the job unless `.env` enables the profile.
+- **`workbench`** — the target reads down until workbench is deployed, and
+  prometheus cannot start at all while `workbench-net` does not exist
+  (`make network` creates it, as `make up` does first).
 - **A member running an older image** — a scrape job configured here can
   only come up once the member's *deployed* build exposes the endpoint.
   A target reading `up == 0` right after a member gains a metrics

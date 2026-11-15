@@ -38,9 +38,10 @@ Alloy routes there. Three nginx sidecars (`nginx/`) guard the edges: one in
 front of each Grafana (`grafana-guard`, `grafana-audit-guard`) and a
 read-only proxy in front of the audit store (`loki-audit-read`).
 
-It joins **all three** shared external networks. On `inference-net` and
-`data-net` it is a pure consumer — it scrapes and probes targets by
-alias and claims no alias of its own. On `edge-net` it is not: `grafana`
+It joins **all four** shared external networks. On `inference-net`,
+`data-net` and `workbench-net` it is a pure consumer — it scrapes and
+probes targets by alias and claims no alias of its own (`workbench-net`:
+prometheus only, for `workbench-api:8000`). On `edge-net` it is not: `grafana`
 attaches there with the alias `grafana`, which edge-plane's Caddy
 proxies `/grafana/*` to (`../edge-plane/caddy/Caddyfile`), and
 `grafana-audit` with the alias `grafana-audit` for `/audit/*`, so both
@@ -137,7 +138,7 @@ edge-secret check).
 ## Commands
 
 ```bash
-make network                  # create external inference-net + data-net + edge-net (idempotent)
+make network                  # create external inference-net + data-net + edge-net + workbench-net (idempotent)
 make volumes                  # create the external obs + audit volumes, chown alloy-data/audit-verifier-state (idempotent)
 make pull                     # pull all images
 make up                       # production shape — no host ports
