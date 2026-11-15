@@ -96,6 +96,7 @@ DEFAULT_EMITTERS: frozenset[tuple[str, str]] = frozenset(
         ("translator", "backend"),
         ("vllm-service", "router"),
         ("edge-plane", "auth-audit"),
+        ("edge-plane", "auth-retention"),
         ("data-plane", "admin-audit"),
         ("open-webui-service", "retention"),
         ("workbench", "api"),
