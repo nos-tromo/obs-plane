@@ -38,6 +38,24 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "Host memory available <10% for 10m"
+  # workbench (docs/coverage.md). The disk gauges are measured when the api
+  # starts and by each retention sweep, so they follow the data volume's
+  # filesystem, not a moment-to-moment reading. Refusals are counted by
+  # reason (queue_full, wait_timeout, executor_busy).
+  - name: workbench
+    rules:
+      - alert: WorkbenchDiskHigh
+        expr: workbench_disk_used_bytes / workbench_disk_capacity_bytes > 0.8
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "workbench data volume >80% full for 15m"
+      - alert: WorkbenchRefusing
+        expr: rate(workbench_job_refusals_total[15m]) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "workbench refusing jobs ({{ $labels.reason }}) for 15m"
   # GPU rules only produce data when the dcgm-exporter runs (`gpu` compose
   # profile). Memory threshold is 0.95/30m because vLLM deliberately
   # preallocates ~90% of VRAM — a 0.90 threshold would fire permanently.

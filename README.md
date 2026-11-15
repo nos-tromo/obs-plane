@@ -6,9 +6,9 @@ blackbox-exporter + dcgm-exporter (GPU hosts), plus the federation's
 data-protection audit trail (`loki-audit`, `grafana-audit`,
 `audit-verifier`), all pulled and digest-pinned, bundleable for airgap.
 Built in the `data-plane` mold — it owns its own external volumes, and
-joins all three shared external networks: `inference-net` and `data-net`
-read-only as a scraper, `edge-net` so the edge gateway can reach Grafana
-and the audit-trail viewer.
+joins all four shared external networks: `inference-net`, `data-net` and
+`workbench-net` read-only as a scraper, `edge-net` so the edge gateway can
+reach Grafana and the audit-trail viewer.
 
 ## What lives here
 
@@ -16,7 +16,7 @@ Fifteen services, all lightweight next to the inference stack.
 
 | Service | Role | Network membership |
 |---|---|---|
-| `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` |
+| `prometheus` | Metrics store + scraper, retention `${PROMETHEUS_RETENTION:-30d}` | project-internal + `inference-net` + `data-net` + `workbench-net` |
 | `grafana` | UI; datasources and dashboards file-provisioned. Alert rules are not — they are Prometheus/Loki rule files, listed here read-only. Listens on loopback only, behind `grafana-guard` | project-internal + `edge-net`, alias `grafana` (served at `/grafana/` behind the edge gateway) |
 | `grafana-guard` | nginx in `grafana`'s network namespace, answering on `:3000`: passes the gateway's identity headers on only with `GRAFANA_EDGE_SECRET` (unset: as before) | shares `grafana`'s |
 | `loki` | Log store, filesystem backend, retention `${LOKI_RETENTION:-720h}` | project-internal only |
@@ -32,10 +32,11 @@ Fifteen services, all lightweight next to the inference stack.
 | `grafana-audit-guard` | nginx in `grafana-audit`'s network namespace, answering on `:3000`: 403 for every request without `AUDIT_EDGE_SECRET` | shares `grafana-audit`'s |
 | `audit-verifier` | Re-checks the trail's hash chains every `${AUDIT_VERIFY_INTERVAL:-300}` s, through `loki-audit-read`, and exports the result as metrics; runs the `make audit-*` one-shots | project-internal + `audit-read` |
 
-`prometheus` and `blackbox-exporter` join `inference-net` and `data-net`
-(to reach scrape/probe targets by alias); `grafana` and `grafana-audit`
-join `edge-net` — the rest stay on the project-internal networks. On the
-first two seams obs-plane is a read-only consumer that claims no alias. On
+`prometheus` joins `inference-net`, `data-net` and `workbench-net`, and
+`blackbox-exporter` the first two (to reach scrape/probe targets by alias);
+`grafana` and `grafana-audit` join `edge-net` — the rest stay on the
+project-internal networks. On the first three seams obs-plane is a
+read-only consumer that claims no alias. On
 `edge-net` it publishes two: `grafana` and `grafana-audit`, which
 edge-plane's Caddy proxies `/grafana/*` and `/audit/*` to
 ([`caddy/Caddyfile`](../edge-plane/caddy/Caddyfile)) together with
@@ -52,7 +53,7 @@ its only writer `alloy`, and `loki-audit-read`) and `audit-read`
 cp .env.example .env
 $EDITOR .env                  # set GRAFANA_ADMIN_PASSWORD, AUDIT_EDGE_SECRET and EDGE_HOST
 
-make network                  # create the external inference-net + data-net + edge-net (idempotent)
+make network                  # create the external inference-net + data-net + edge-net + workbench-net (idempotent)
 make volumes                  # create the external obs + audit volumes (idempotent)
 make up-dev                   # start, publishing Grafana on the host
 ```
@@ -75,6 +76,8 @@ scrape target reads down (expected; `make health` excludes it).
 - **vLLM backends** — `chat`/`embed`/`rerank`/`asr` on `inference-net`.
 - **LiteLLM router** — per-model requests, latency including routing.
 - **FastAPI app backends** — docint, Nextext, translator.
+- **workbench** — queue, job durations, refusals and the data volume's disk
+  use on `workbench-api:8000`, with two alerts.
 - **NVIDIA GPUs** — dcgm-exporter, GPU hosts only (`gpu` profile).
 - **Black-box health** — router liveliness,
   `qdrant:6333/healthz`.

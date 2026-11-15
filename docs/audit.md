@@ -145,6 +145,7 @@ API, which a container cannot set for itself:
   | `edge-plane` | `auth-audit` |
   | `data-plane` | `admin-audit` |
   | `open-webui-service` | `retention` |
+  | `workbench` | `api` |
 
   `AUDIT_EMITTERS` in `.env` replaces it — comma-separated
   `project/service` pairs, e.g. `docint/backend,nextext/backend`; `*` turns

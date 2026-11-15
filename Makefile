@@ -12,6 +12,7 @@ SHELL := /usr/bin/env bash
 INFERENCE_NET ?= $(or $(strip $(shell test -f .env && grep -E '^INFERENCE_NET=' .env | cut -d= -f2)),inference-net)
 DATA_NET      ?= $(or $(strip $(shell test -f .env && grep -E '^DATA_NET=' .env | cut -d= -f2)),data-net)
 EDGE_NET      ?= $(or $(strip $(shell test -f .env && grep -E '^EDGE_NET=' .env | cut -d= -f2)),edge-net)
+WORKBENCH_NET ?= $(or $(strip $(shell test -f .env && grep -E '^WORKBENCH_NET=' .env | cut -d= -f2)),workbench-net)
 
 # External named volumes this project owns. Keep in sync with docker/compose.yaml.
 # `make nuke` destroys VOLUMES only: the audit trail leaves its volumes only
@@ -30,7 +31,7 @@ help:
 	@echo "obs-plane — observability for the federation (Prometheus + Grafana + Loki)."
 	@echo
 	@echo "Lifecycle:"
-	@echo "  make network   create external inference-net + data-net + edge-net if missing"
+	@echo "  make network   create external inference-net + data-net + edge-net + workbench-net if missing"
 	@echo "  make volumes   create the external obs volumes if missing"
 	@echo "  make pull      pull all images from the registries"
 	@echo "  make bundle    save images as a versioned airgap tarball"
@@ -54,7 +55,7 @@ help:
 	@echo "GPU hosts: set COMPOSE_PROFILES=gpu in .env to run dcgm-exporter."
 
 network:
-	@for n in $(INFERENCE_NET) $(DATA_NET) $(EDGE_NET); do \
+	@for n in $(INFERENCE_NET) $(DATA_NET) $(EDGE_NET) $(WORKBENCH_NET); do \
 	  docker network inspect $$n >/dev/null 2>&1 \
 	    || (echo ">> creating external network $$n" && docker network create $$n); \
 	done

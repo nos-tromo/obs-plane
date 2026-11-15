@@ -8,7 +8,7 @@
 ###     audit-verifier + their named volumes
 ###
 ### What it does NOT own:
-###   - inference-net / data-net (external; joined read-only as a scraper)
+###   - inference-net / data-net / workbench-net (external; joined read-only as a scraper)
 ###   - Any service other members depend on — obs-plane is a pure consumer.
 ###
 ### Airgap: all images pulled + digest-pinned; every phone-home/update-check
@@ -54,6 +54,9 @@ networks:
   edge-net:
     external: true
     name: ${EDGE_NET:-edge-net}
+  workbench-net:
+    external: true
+    name: ${WORKBENCH_NET:-workbench-net}
 
 services:
   ##########################################################
@@ -75,6 +78,7 @@ services:
       default:
       inference-net:
       data-net:
+      workbench-net:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
       interval: 30s

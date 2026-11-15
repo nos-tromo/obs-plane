@@ -69,6 +69,16 @@ scrape_configs:
           - nextext-backend:8000
           - translator-backend:8000
 
+  # workbench's tool API: queue depth and wait, job duration by tool, refused
+  # jobs by reason, and the data volume's disk use. Reached by alias on
+  # workbench-net, which prometheus joins read-only like the other seams.
+  # /metrics needs no key (the api's key gate exempts it) and holds counts
+  # only. The target reads down until workbench is deployed.
+  - job_name: workbench
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["workbench-api:8000"]
+
   - job_name: vllm
     static_configs:
       - targets: ["chat:8000", "embed:8000", "rerank:8000", "asr:8000"]
