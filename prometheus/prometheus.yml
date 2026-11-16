@@ -79,6 +79,16 @@ scrape_configs:
     static_configs:
       - targets: ["workbench-api:8000"]
 
+  # Ghostwriter's backend, a FastAPI app like the `apps` job's, in a job of
+  # its own so that a host without Ghostwriter shows `ghostwriter` down in
+  # `make health`, never `apps`. Reached by alias on inference-net or
+  # workbench-net, both joined read-only, so either resolves it. The target
+  # reads down until Ghostwriter is deployed.
+  - job_name: ghostwriter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ghostwriter-backend:8000"]
+
   - job_name: vllm
     static_configs:
       - targets: ["chat:8000", "embed:8000", "rerank:8000", "asr:8000"]

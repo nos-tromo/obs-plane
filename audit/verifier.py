@@ -100,6 +100,7 @@ DEFAULT_EMITTERS: frozenset[tuple[str, str]] = frozenset(
         ("data-plane", "admin-audit"),
         ("open-webui-service", "retention"),
         ("workbench", "api"),
+        ("ghostwriter", "backend"),
     }
 )
 #: Lines per query (Loki's default ``max_entries_limit_per_query``), and the

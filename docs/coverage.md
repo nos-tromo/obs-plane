@@ -78,6 +78,12 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   `docint-backend` resolves on
   `data-net` (also on `inference-net`); `nextext-backend` and
   `translator-backend` are `inference-net` only.
+- **Ghostwriter** — `ghostwriter-backend:8000/metrics` in its own scrape job,
+  `ghostwriter`, so that a host without it never shows `apps` down. It
+  exposes the same `prometheus-fastapi-instrumentator` defaults as the apps
+  above and resolves on `inference-net` and on `workbench-net`, both joined
+  read-only. Its audit chain, emitter `ghostwriter` / `backend`, is checked
+  by the verifier like the others ([audit.md](audit.md#source-binding)).
 - **workbench** — `workbench-api:8000/metrics` (job `workbench`) over
   `workbench-net`, which prometheus joins read-only like the other seams,
   claiming no alias. No key is needed: the api's key gate exempts `/metrics`
@@ -130,6 +136,8 @@ knowing which ones are expected to be:
 - **`workbench`** — the target reads down until workbench is deployed, and
   prometheus cannot start at all while `workbench-net` does not exist
   (`make network` creates it, as `make up` does first).
+- **`ghostwriter`** — the target reads down until Ghostwriter is deployed,
+  and `make health` names the job meanwhile, as it does for `workbench`.
 - **A member running an older image** — a scrape job configured here can
   only come up once the member's *deployed* build exposes the endpoint.
   A target reading `up == 0` right after a member gains a metrics

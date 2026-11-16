@@ -1137,6 +1137,25 @@ def test_workbench_api_is_a_listed_emitter() -> None:
     assert ("workbench", "api") in v.DEFAULT_EMITTERS
 
 
+def test_ghostwriter_backend_is_a_listed_emitter() -> None:
+    """Ghostwriter's backend chain is accepted; a copy printed by its frontend is unlisted_source."""
+    assert ("ghostwriter", "backend") in v.DEFAULT_EMITTERS
+    loki = FakeLoki()
+    cfg = dataclasses.replace(CFG, emitters=v.DEFAULT_EMITTERS)
+    genuine = Chain("ghostwriter")
+    genuine.query(2)
+    genuine.close()
+    put(loki, genuine.take(), T0 + NS, NS, labels("ghostwriter", "backend"))
+    impostor = Chain("ghostwriter")
+    impostor.query(1)
+    impostor.close()
+    impostor_lines = impostor.take()
+    put(loki, impostor_lines, T0 + 20 * NS, NS, labels("ghostwriter", "frontend"))
+    result = v.check_range(loki, cfg, T0, T0 + 3600 * NS)
+    assert [p.kind for p in result.problems] == ["unlisted_source"] * len(impostor_lines)
+    assert set(result.heads) == {genuine.instance}
+
+
 def test_lines_from_an_unlisted_container_stay_out_of_the_chains() -> None:
     """With an emitter list, a sibling container's chain in the project's name is unlisted_source."""
     loki = FakeLoki()
