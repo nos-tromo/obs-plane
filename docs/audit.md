@@ -130,7 +130,7 @@ API, which a container cannot set for itself:
   line that arrived without the label, is a `foreign_source` problem —
   otherwise any container could print a complete, internally consistent
   chain in another service's name. An emitter's `service` is therefore its
-  compose project name (`docint`, `nextext`, `translator`).
+  compose project name (`docint`, `nextext`, `translator`, `ghostwriter`).
 - **A chain must come from a listed emitter.** The line's `compose_project`
   and `compose_service` must be, ignoring case, one of the federation's
   emitters; any other line is an `unlisted_source` problem. Without this, a
@@ -140,7 +140,7 @@ API, which a container cannot set for itself:
 
   | Project | Service |
   |---|---|
-  | `docint`, `nextext`, `translator` | `backend` |
+  | `docint`, `nextext`, `translator`, `ghostwriter` | `backend` |
   | `vllm-service` | `router` |
   | `edge-plane` | `auth-audit`, `auth-retention` |
   | `data-plane` | `admin-audit` |

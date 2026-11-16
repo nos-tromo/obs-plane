@@ -64,11 +64,11 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   into this repo.
   Rendered on the `litellm.json` dashboard.
 - **FastAPI app metrics** — `docint-backend:8000`, `nextext-backend:8000`,
-  `translator-backend:8000` are configured as a
+  `translator-backend:8000`, `ghostwriter-backend:8000` are configured as a
   Prometheus `apps` scrape job (`prometheus/prometheus.yml`), each exposing
   `prometheus-fastapi-instrumentator` defaults (`http_requests_total`,
   `http_request_duration_seconds` buckets; labeled `method`/`handler`
-  (route template)/`status`). All three apps register `GET /metrics` on
+  (route template)/`status`). All four apps register `GET /metrics` on
   their FastAPI app; docint gates it behind `METRICS_ENABLED`
   (default `true`), so an `apps` target reading down on a member that is
   definitely deployed is worth checking against that variable. Nextext
@@ -77,7 +77,8 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   endpoint; no dashboard here renders them yet.
   `docint-backend` resolves on
   `data-net` (also on `inference-net`); `nextext-backend` and
-  `translator-backend` are `inference-net` only.
+  `translator-backend` are `inference-net` only; `ghostwriter-backend` is on
+  `inference-net` and `workbench-net`.
 - **workbench** — `workbench-api:8000/metrics` (job `workbench`) over
   `workbench-net`, which prometheus joins read-only like the other seams,
   claiming no alias. No key is needed: the api's key gate exempts `/metrics`
@@ -130,6 +131,9 @@ knowing which ones are expected to be:
 - **`workbench`** — the target reads down until workbench is deployed, and
   prometheus cannot start at all while `workbench-net` does not exist
   (`make network` creates it, as `make up` does first).
+- **`apps`, for `ghostwriter-backend:8000`** — the target reads down until
+  Ghostwriter is deployed, and `make health` names the job meanwhile, as it
+  does for `workbench`.
 - **A member running an older image** — a scrape job configured here can
   only come up once the member's *deployed* build exposes the endpoint.
   A target reading `up == 0` right after a member gains a metrics
