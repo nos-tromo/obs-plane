@@ -58,19 +58,16 @@ scrape_configs:
   # FastAPI app backends — instrumented via prometheus-fastapi-instrumentator
   # (docint#341, Nextext#105, translator#71 — merged). Targets
   # read down (`up == 0`) until each app deploys an image containing that
-  # change; ghostwriter-backend reads down until Ghostwriter is deployed.
-  # Network membership per app:
+  # change. Network membership per app:
   #   docint-backend:8000     — data-net (also on inference-net)
   #   nextext-backend:8000    — inference-net only
   #   translator-backend:8000 — inference-net only
-  #   ghostwriter-backend:8000 — inference-net and workbench-net (either resolves it)
   - job_name: apps
     static_configs:
       - targets:
           - docint-backend:8000
           - nextext-backend:8000
           - translator-backend:8000
-          - ghostwriter-backend:8000
 
   # workbench's tool API: queue depth and wait, job duration by tool, refused
   # jobs by reason, and the data volume's disk use. Reached by alias on
@@ -81,6 +78,16 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["workbench-api:8000"]
+
+  # Ghostwriter's backend, a FastAPI app like the `apps` job's, in a job of
+  # its own so that a host without Ghostwriter shows `ghostwriter` down in
+  # `make health`, never `apps`. Reached by alias on inference-net or
+  # workbench-net, both joined read-only, so either resolves it. The target
+  # reads down until Ghostwriter is deployed.
+  - job_name: ghostwriter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ghostwriter-backend:8000"]
 
   - job_name: vllm
     static_configs:

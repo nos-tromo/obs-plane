@@ -75,7 +75,9 @@ scrape target reads down (expected; `make health` excludes it).
 - **Qdrant** — native `/metrics` on `qdrant:6333` over `data-net`.
 - **vLLM backends** — `chat`/`embed`/`rerank`/`asr` on `inference-net`.
 - **LiteLLM router** — per-model requests, latency including routing.
-- **FastAPI app backends** — docint, Nextext, translator, Ghostwriter.
+- **FastAPI app backends** — docint, Nextext, translator.
+- **Ghostwriter** — its backend on `ghostwriter-backend:8000`, in its own
+  scrape job.
 - **workbench** — queue, job durations, refusals and the data volume's disk
   use on `workbench-api:8000`, with two alerts.
 - **NVIDIA GPUs** — dcgm-exporter, GPU hosts only (`gpu` profile).
