@@ -67,7 +67,7 @@ signed in from `X-Auth-User` — with these differences, all set on the
 `X-Auth-User` is trustworthy only if it comes from edge-plane's Caddy,
 which strips any client-supplied copy and injects its own after Authelia
 has authenticated the request. Grafana cannot tell who sent the header,
-and `edge-net` is shared with every app frontend and Open WebUI, so
+and `edge-net` is shared with every app frontend, so
 membership in it is no proof of being the gateway. Each Grafana therefore
 listens on `127.0.0.1:3001` only and accepts the proxy header only from
 there (`GF_AUTH_PROXY_WHITELIST=127.0.0.1`); an nginx guard in the same

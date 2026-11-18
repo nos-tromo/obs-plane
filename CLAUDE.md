@@ -100,10 +100,9 @@ edge-secret check).
   and accepts them only from the emitters `DEFAULT_EMITTERS` in
   `audit/verifier.py` lists — `AUDIT_EMITTERS` replaces it; renaming an
   emitter's compose project or service needs its pair changed with it);
-  the gateway's and Open WebUI's markers only from their own containers —
-  `edge-plane`/`caddy` and `open-webui-service`/`open-webui`, a cross-repo
-  contract: renaming either compose project or service needs the selector
-  changed with it. `scripts/check_alloy_lanes.sh`
+  the gateway's marker only from its own container —
+  `edge-plane`/`caddy`, a cross-repo contract: renaming its compose
+  project or service needs the selector changed with it. `scripts/check_alloy_lanes.sh`
   (CI) runs the real config on `alloy/lanes-test/` fixtures; regenerate
   `expected.txt` with `--update` only for an intended routing change, and
   read the diff. The logs of `loki-audit`, `loki-audit-read`,
@@ -124,9 +123,8 @@ edge-secret check).
 - **Both Grafanas listen on `127.0.0.1:3001` only, behind a guard.** An
   nginx sidecar with `network_mode: service:<grafana>` owns `:3000` and
   checks `X-Edge-Secret`: `grafana-audit-guard` fail-closed (403,
-  `AUDIT_EDGE_SECRET` required), `grafana-guard` with open-webui-service's
-  legacy semantics (`GRAFANA_EDGE_SECRET` optional; mismatch drops the
-  identity headers). Each Grafana has `GF_AUTH_PROXY_WHITELIST=127.0.0.1`.
+  `AUDIT_EDGE_SECRET` required), `grafana-guard` (`GRAFANA_EDGE_SECRET`
+  optional; mismatch drops the identity headers). Each Grafana has `GF_AUTH_PROXY_WHITELIST=127.0.0.1`.
   `grafana-audit` has no local admin, no login form and no basic auth.
   `scripts/edge_secret_check.sh` refuses a secret under 32 characters or
   with characters outside `A–Z a–z 0–9 . _ ~ + / = -` before nginx starts.
