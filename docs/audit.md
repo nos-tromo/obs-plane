@@ -16,7 +16,6 @@ reference for the store itself.
 |---|---|---|
 | Federation services using the shared audit library (`audit_event.py`, canonical in `nos-tromo/.github`, vendored here as `audit/audit_event.py`) | One JSON line per event, marked `"stream":"audit"`: action, operation, outcome, actor, stated purpose, references and bounded search criteria, never content | Hash chain per process, re-checked by the verifier |
 | The edge gateway's access log (`"logger":"http.log.access…"`), accepted only from edge-plane's `caddy` container | One line per request: account (`user`), request id (`uuid`), path without its query string, status | Daily anchors only |
-| Open WebUI's audit log (`"auditable": true`), accepted only from open-webui-service's `open-webui` container | One record per authenticated API request, without request or response bodies | Daily anchors only |
 
 Each chain belongs to one process. Its events carry `seq` and the hash of the
 previous event, so a removed, inserted, reordered or altered line breaks the
@@ -32,12 +31,11 @@ per line, in one place (`loki.process "lane"`):
   **unredacted**: the search criteria in them are part of the record. A
   chained line (`"stream":"audit"`) counts from any container, because the
   verifier binds each one to its source ([Source binding](#source-binding)).
-  The two third-party markers carry no chain, so they count only from their
-  own containers: the gateway's from compose project `edge-plane`, service
-  `caddy`; Open WebUI's from `open-webui-service`, service `open-webui`.
+  The gateway's marker carries no chain, so it counts only from its own
+  container: compose project `edge-plane`, service `caddy`.
   The same text printed by any other container is an ordinary line — it
   goes to the operational Loki, redacted — so no container can slip a fake
-  gateway or Open WebUI record into the trail.
+  gateway record into the trail.
 - **Everything else** goes to the operational Loki, with query-string values
   redacted as before.
 - **The audit store's own logs** (`loki-audit`, `loki-audit-read`,
@@ -144,7 +142,6 @@ API, which a container cannot set for itself:
   | `vllm-service` | `router` |
   | `edge-plane` | `auth-audit`, `auth-retention` |
   | `data-plane` | `admin-audit` |
-  | `open-webui-service` | `retention` |
   | `workbench` | `api` |
 
   `AUDIT_EMITTERS` in `.env` replaces it — comma-separated
@@ -298,8 +295,8 @@ remapped user ID (deploy `docs/runbooks/userns-remap.md`).
   current day, until that day's anchor is signed and kept off the host.
   Anchors make such changes detectable afterwards; they do not prevent them.
   Take them every day.
-- **The gateway and Open WebUI are not chained.** For their lines the anchors
-  are the only integrity control.
+- **The gateway is not chained.** For its lines the anchors are the only
+  integrity control.
 - **New chains are bound to a listed service, not a container.** Any
   container of a listed emitter service — a second replica, or a one-off
   container of that service started on the host — can start chains of its

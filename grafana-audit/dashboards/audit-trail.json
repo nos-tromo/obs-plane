@@ -13,7 +13,7 @@
       {
         "name": "service",
         "label": "Service",
-        "description": "e.g. docint, translator, open-webui",
+        "description": "e.g. docint, translator, ghostwriter",
         "type": "textbox",
         "query": "",
         "current": { "text": "", "value": "" },

@@ -26,9 +26,9 @@ Scrape jobs live in `prometheus/prometheus.yml`, probe modules in
   kept), so search terms and access tokens in request lines, URLs and
   referrers never reach Loki — including from sources whose own log format
   cannot be changed (nginx's error log, upstream images). Audit records —
-  the services' hash-chained audit events, the gateway's access log and
-  Open WebUI's audit log — are the exception: they go, unredacted, to the
-  audit trail's own store and never to this Loki ([audit.md](audit.md)).
+  the services' hash-chained audit events and the gateway's access log —
+  are the exception: they go, unredacted, to the audit trail's own store
+  and never to this Loki ([audit.md](audit.md)).
 - **NVIDIA GPUs** (GPU hosts, `gpu` compose profile) — dcgm-exporter
   device telemetry: utilization, framebuffer memory, temperature, power,
   SM clock, memory-bandwidth utilization, ECC error counters. Rendered on

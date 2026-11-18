@@ -107,9 +107,9 @@ contract, the edge guards and the dev-overlay / SSH-tunnel fallbacks.
 ## Audit trail
 
 Audit records — the hash-chained events of the federation's services, the
-gateway's access log and Open WebUI's audit log — bypass the operational
-Loki: Alloy routes them, unredacted, to `loki-audit`, which keeps them for
-`AUDIT_RETENTION` (default one year) and offers no way to delete lines.
+gateway's access log — bypass the operational Loki: Alloy routes them,
+unredacted, to `loki-audit`, which keeps them for `AUDIT_RETENTION` (default
+one year) and offers no way to delete lines.
 `grafana-audit` shows them at `https://${EDGE_HOST}/audit/` to the
 gateway's `audit` group only — its guard refuses anything that does not
 carry the gateway's `AUDIT_EDGE_SECRET` — and reads the store through

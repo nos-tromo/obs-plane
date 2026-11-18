@@ -15,9 +15,8 @@ takes neither (see below). Nine of the fourteen — `socket-proxy`,
 `audit-verifier`, and the three nginx sidecars `grafana-guard`,
 `grafana-audit-guard` and `loki-audit-read` — additionally run read-only.
 The nginx sidecars run as the image's unprivileged user (uid 101) with
-only `/tmp` and their rendered config directory as tmpfs, the same shape
-as open-webui-service's edge guard; the two guards share their Grafana's
-network namespace, so each Grafana listens on loopback only
+only `/tmp` and their rendered config directory as tmpfs; the two guards
+share their Grafana's network namespace, so each Grafana listens on loopback only
 ([grafana-access.md](grafana-access.md#the-edge-guards)). Alloy no longer mounts the
 Docker socket — it reaches the API through `socket-proxy`, which enables
 only the read-only endpoints Alloy needs and rejects everything else (403),

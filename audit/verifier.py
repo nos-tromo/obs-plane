@@ -98,7 +98,6 @@ DEFAULT_EMITTERS: frozenset[tuple[str, str]] = frozenset(
         ("edge-plane", "auth-audit"),
         ("edge-plane", "auth-retention"),
         ("data-plane", "admin-audit"),
-        ("open-webui-service", "retention"),
         ("workbench", "api"),
         ("ghostwriter", "backend"),
     }
