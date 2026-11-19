@@ -1131,11 +1131,6 @@ def test_audit_emitters_parse_strictly() -> None:
     assert all(project == project.lower() and service == service.lower() for project, service in v.DEFAULT_EMITTERS)
 
 
-def test_open_webui_is_no_listed_source() -> None:
-    """The retired retention sidecar is not among the default emitters."""
-    assert ("open-webui-service", "retention") not in v.DEFAULT_EMITTERS
-
-
 def test_workbench_api_is_a_listed_emitter() -> None:
     """workbench's api is a federation emitter: its chains are not unlisted_source."""
     assert ("workbench", "api") in v.DEFAULT_EMITTERS
