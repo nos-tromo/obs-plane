@@ -16,15 +16,15 @@ takes neither (see below). Nine of the fourteen — `socket-proxy`,
 `grafana-audit-guard` and `loki-audit-read` — additionally run read-only.
 The nginx sidecars run as the image's unprivileged user (uid 101) with
 only `/tmp` and their rendered config directory as tmpfs; the two guards
-share their Grafana's network namespace, so each Grafana listens on loopback only
-([grafana-access.md](grafana-access.md#the-edge-guards)). Alloy no longer mounts the
-Docker socket — it reaches the API through `socket-proxy`, which enables
-only the read-only endpoints Alloy needs and rejects everything else (403),
-and it runs as its internal uid 473 (`make volumes` chowns `alloy-data`
-accordingly; on hosts with an existing volume re-run `make volumes` once).
-`audit-verifier` runs as the python image's `nobody` (65534), with its code
-mounted read-only and only `audit-verifier-state` writable (`make volumes`
-chowns it).
+share their Grafana's network namespace, so each Grafana listens on
+loopback only ([grafana-access.md](grafana-access.md#the-edge-guards)).
+Alloy no longer mounts the Docker socket — it reaches the API through
+`socket-proxy`, which enables only the read-only endpoints Alloy needs and
+rejects everything else (403), and it runs as its internal uid 473
+(`make volumes` chowns `alloy-data` accordingly; on hosts with an existing
+volume re-run `make volumes` once). `audit-verifier` runs as the python
+image's `nobody` (65534), with its code mounted read-only and only
+`audit-verifier-state` writable (`make volumes` chowns it).
 
 The shared constraints are applied through the `x-hardened` anchor in
 `docker/compose.yaml`; the socket-proxy allowlist (only `GET /containers`,
