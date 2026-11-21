@@ -76,9 +76,9 @@ edge-secret check).
 - **No runtime fetching, no telemetry.** Grafana's analytics/update-check
   env flags are off (`GF_ANALYTICS_REPORTING_ENABLED`,
   `GF_ANALYTICS_CHECK_FOR_UPDATES`, `GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES`,
-  `GF_NEWS_NEWS_FEED_ENABLED`, `GF_PLUGINS_PREINSTALL_DISABLED`), no
-  Grafana plugins are installed, Loki runs
-  with `analytics.reporting_enabled: false`, and Alloy runs with
+  `GF_NEWS_NEWS_FEED_ENABLED`, `GF_PLUGINS_PREINSTALL_DISABLED`), Gravatar
+  is off (`GF_SECURITY_DISABLE_GRAVATAR`), no Grafana plugins are installed,
+  Loki runs with `analytics.reporting_enabled: false`, and Alloy runs with
   `--disable-reporting`. Dashboard JSON is committed, never fetched.
 - **No host ports in the base compose.** `docker/compose.yaml` is
   production-shape and publishes nothing; `docker/compose.override.yaml`

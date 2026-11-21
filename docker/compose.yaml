@@ -97,12 +97,14 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
-      # Airgap: no phone-home, no update checks, no news feed.
+      # Airgap: no phone-home, no update checks, no news feed, and no
+      # avatars from Gravatar (they would send a hash of each user's login).
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
       # Served under /grafana/ behind the edge gateway (edge-plane).
       GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
@@ -404,12 +406,14 @@ services:
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_AUTH_BASIC_ENABLED: "false"
-      # Airgap: no phone-home, no update checks, no news feed.
+      # Airgap: no phone-home, no update checks, no news feed, and no
+      # avatars from Gravatar (they would send a hash of each user's login).
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
       # Served under /audit/ behind the edge gateway, which admits only
       # its `audit` group (edge-plane).
       GF_SERVER_ROOT_URL: "https://${EDGE_HOST:-localhost}/audit/"
