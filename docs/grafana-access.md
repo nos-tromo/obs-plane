@@ -115,6 +115,8 @@ favicon, so compose lays the PNGs read-only over the image's own: the
 index page of Grafana 13 links `public/build/img/fav32.png` and
 `apple-touch-icon.png`, the error page `public/img/fav32.png`. When
 bumping the Grafana image, check that these are still the files its pages
-link (`grep -n icon public/views/*.html` in the image); a renamed file
+link: the index page takes its paths from Grafana's code, so read them
+from the rendered page (`curl -s <grafana>/login | grep -n icon`), and the
+error page's from `public/views/error.html` in the image. A renamed file
 leaves the mount in place and Grafana's own icon back in the tab. A
 browser may show the previous icon from its cache for a while.
