@@ -11,7 +11,7 @@ detail that would otherwise crowd it out.
 | Document | What it covers |
 |---|---|
 | [coverage.md](coverage.md) | Every scrape/probe target: what is observable, what is deliberately not, and which targets are down by design |
-| [grafana-access.md](grafana-access.md) | Reaching Grafana through the edge gateway, the `X-Auth-User` trust assumption, and the dev-overlay / SSH-tunnel fallbacks |
+| [grafana-access.md](grafana-access.md) | Reaching Grafana through the edge gateway, the `X-Auth-User` trust assumption, the dev-overlay / SSH-tunnel fallbacks, and the favicons laid over the image's own |
 | [hardening.md](hardening.md) | Container hardening baseline (deploy ADR 0001) and the accepted residual findings — cAdvisor's `privileged: true`, dcgm-exporter's dropped profiling metrics |
 | [audit.md](audit.md) | The data-protection audit trail: what feeds it, how Alloy routes it, retention, who can read it, the verifier and its alerts, exports and signed daily anchors, and the limits |
 
