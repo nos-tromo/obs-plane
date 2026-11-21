@@ -103,3 +103,20 @@ login form. `compose.override.yaml` also relaxes the
 node-exporter root-filesystem mount from `rslave` to a plain bind for
 local (e.g. macOS/Docker Desktop) development — production keeps
 `rslave` so post-boot mounts stay visible to `node_filesystem_*` metrics.
+
+## The favicons
+
+Both Grafanas show the federation's icon family in the browser tab: a curve
+over a baseline for `grafana`, a shield with a check mark for
+`grafana-audit`, each on an orange tile (`grafana/brand/`,
+`grafana-audit/brand/`; `favicon.svg` is the source, the rules are in
+infra-ui's `docs/app-icons.md`). Grafana OSS has no setting for its
+favicon, so compose lays the PNGs read-only over the image's own: the
+index page of Grafana 13 links `public/build/img/fav32.png` and
+`apple-touch-icon.png`, the error page `public/img/fav32.png`. When
+bumping the Grafana image, check that these are still the files its pages
+link: the index page takes its paths from Grafana's code, so read them
+from the rendered page (`curl -s <grafana>/login | grep -n icon`), and the
+error page's from `public/views/error.html` in the image. A renamed file
+leaves the mount in place and Grafana's own icon back in the tab. A
+browser may show the previous icon from its cache for a while.

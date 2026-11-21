@@ -70,7 +70,9 @@ edge-secret check).
 - **Image pins are `tag@digest`, never floating.** Every `image:` in
   `docker/compose.yaml` is an explicit release tag **and** digest
   (`repo:vX.Y.Z@sha256:...`). Never `latest`, `stable`, `main`, or an rc
-  tag. Bumping a version means re-resolving tag and digest together.
+  tag. Bumping a version means re-resolving tag and digest together;
+  a Grafana bump also re-checks the favicon paths its pages link
+  (`docs/grafana-access.md`, The favicons).
 - **No runtime fetching, no telemetry.** Grafana's analytics/update-check
   env flags are off (`GF_ANALYTICS_REPORTING_ENABLED`,
   `GF_ANALYTICS_CHECK_FOR_UPDATES`, `GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES`,

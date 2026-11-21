@@ -122,6 +122,13 @@ services:
     volumes:
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Grafana OSS has no setting for its favicon, so the family icon
+      # (brand/, built per infra-ui docs/app-icons.md) is laid over the
+      # image's own files: the index page links public/build/img, the
+      # error page public/img/fav32.png.
+      - ../grafana/brand/fav32.png:/usr/share/grafana/public/build/img/fav32.png:ro
+      - ../grafana/brand/apple-touch-icon.png:/usr/share/grafana/public/build/img/apple-touch-icon.png:ro
+      - ../grafana/brand/fav32.png:/usr/share/grafana/public/img/fav32.png:ro
       - grafana-data:/var/lib/grafana
     networks:
       default:
@@ -429,6 +436,10 @@ services:
     volumes:
       - ../grafana-audit/provisioning:/etc/grafana/provisioning:ro
       - ../grafana-audit/dashboards:/var/lib/grafana/dashboards:ro
+      # The family icon over the image's own, as for grafana above.
+      - ../grafana-audit/brand/fav32.png:/usr/share/grafana/public/build/img/fav32.png:ro
+      - ../grafana-audit/brand/apple-touch-icon.png:/usr/share/grafana/public/build/img/apple-touch-icon.png:ro
+      - ../grafana-audit/brand/fav32.png:/usr/share/grafana/public/img/fav32.png:ro
       - grafana-audit-data:/var/lib/grafana
     networks:
       audit-read:
