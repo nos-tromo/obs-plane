@@ -30,6 +30,15 @@ compactor:
   retention_enabled: true
   delete_request_store: filesystem
 
+# The default 15s holds /ready at 503 after its first call, giving other
+# ring members time to see this one during a rolling update. A single
+# instance has no other members, and nothing polls /ready from start-up
+# (the image has no shell for a healthcheck), so the first `make health`
+# after every start failed.
+ingester:
+  lifecycler:
+    min_ready_duration: 0s
+
 limits_config:
   retention_period: ${LOKI_RETENTION:-720h}
 

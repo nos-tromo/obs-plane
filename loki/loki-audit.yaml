@@ -35,6 +35,11 @@ compactor:
   retention_enabled: true
   delete_request_store: filesystem
 
+# As in loki.yaml: a single instance needs no 15s hold on /ready.
+ingester:
+  lifecycler:
+    min_ready_duration: 0s
+
 limits_config:
   retention_period: ${AUDIT_RETENTION:-8760h}
   # Also makes every query log a "deletion is not available" warning and
